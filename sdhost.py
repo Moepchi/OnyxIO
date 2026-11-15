@@ -10,9 +10,9 @@ import ctypes, winreg
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 from PIL import Image
-from lang import tr
+from lang import HOME, tr
 
-OWN = Path(__file__).with_name('plugins')  # own installs (open-source builds from GitHub) win over Elgato's copy
+OWN = HOME / 'plugins'  # own installs (open-source builds from GitHub) win over Elgato's copy
 PLUGINS = Path(os.environ.get('APPDATA', '')) / 'Elgato/StreamDeck/Plugins'
 PROFILES = Path(os.environ.get('LOCALAPPDATA', '')) / 'darkmount/edge'  # one browser profile per HTML plugin
 DEVICE = 'DARKMOUNT'

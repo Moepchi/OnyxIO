@@ -13,7 +13,7 @@ import darkmount as dm
 import lang, sdhost
 from lang import LANGS, tr
 
-CFG = Path(__file__).with_name('deck.json')
+CFG = lang.HOME / 'deck.json'
 COLS = 4  # 2 rows x 4 keys, like on the module
 MIN_GAP = 60  # s between two images on one key that nobody asked for (see Device.upload)
 LIGHT = {'effect': 2, 'direction': 4, 'brightness': 100, 'speed': 50, 'colors': dm.RAINBOW}  # what IO Center left
@@ -1774,7 +1774,7 @@ if __name__ == '__main__':
         print('ok')
     else:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s', handlers=[
-            RotatingFileHandler(Path(__file__).with_name('deck.log'), maxBytes=200_000, backupCount=1, encoding='utf-8')])
+            RotatingFileHandler(lang.HOME / 'deck.log', maxBytes=200_000, backupCount=1, encoding='utf-8')])
         root = tk.Tk()
         app = App(root)
         if '--min' in sys.argv:
@@ -1783,4 +1783,4 @@ if __name__ == '__main__':
         app.pi_close()
         app.host.stop()
         if app.restart:
-            subprocess.Popen([sys.executable, os.path.abspath(__file__), *[a for a in sys.argv[1:] if a != '--min']])
+            subprocess.Popen([sys.executable, *([] if lang.FROZEN else [os.path.abspath(__file__)]), *[a for a in sys.argv[1:] if a != '--min']])

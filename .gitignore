@@ -7,3 +7,8 @@ plugins/*
 !plugins/README.md
 __pycache__/
 *.pyc
+
+# PyInstaller
+build/
+dist/
+*.spec

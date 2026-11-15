@@ -4,11 +4,13 @@ import ctypes, json, sys
 from pathlib import Path
 
 LANGS = {'en': 'English', 'de': 'Deutsch'}
+FROZEN = getattr(sys, 'frozen', False)  # running as the PyInstaller .exe
+HOME = Path(sys.executable if FROZEN else __file__).parent  # deck.json, deck.log and plugins live here
 
 
 def pick():
     try:
-        lang = json.loads(Path(__file__).with_name('deck.json').read_text('utf-8')).get('lang')
+        lang = json.loads((HOME / 'deck.json').read_text('utf-8')).get('lang')
     except (OSError, ValueError):
         lang = None
     if lang in LANGS:

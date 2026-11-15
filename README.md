@@ -48,7 +48,12 @@ work like a Stream Deck, plus lighting and macros. One Python program, no instal
 
 ![Lighting tab](docs/lighting.png)
 
-## Requirements
+## Download (no Python needed)
+Get **`DarkMountDeck.exe`** from the [latest release](https://github.com/Moepchi/dark-mount-deck/releases/latest),
+put it in a folder of its own and start it. `deck.json`, `deck.log` and the `plugins` folder are created next to it.
+Windows SmartScreen may warn because the file is not signed: *More info → Run anyway*.
+
+## Requirements (running from source)
 - Windows 10 / 11, be quiet! Dark Mount
 - Python 3.10+ and Pillow (`pip install -r requirements.txt`)
 - Optional: Node.js (for Node plugins), Microsoft Edge (for HTML plugins and plugin settings, preinstalled on Windows)
@@ -58,10 +63,11 @@ work like a Stream Deck, plus lighting and macros. One Python program, no instal
 pip install -r requirements.txt
 pythonw deck.py
 ```
-- `pythonw deck.py --min` starts minimized (e.g. from the Windows autostart folder, `shell:startup`).
+- `pythonw deck.py --min` (or `DarkMountDeck.exe --min`) starts minimized (e.g. from the Windows autostart folder, `shell:startup`).
 - **Close IO Center first** – the keyboard accepts only one program at a time.
 - Settings are saved in `deck.json` next to the program; plugin output goes to `deck.log`.
 - Self-tests: `python deck.py test` and `python sdhost.py test` (no keyboard needed).
+- Build the .exe yourself: `pip install pyinstaller` then `pyinstaller --onefile --windowed --name DarkMountDeck deck.py`
 
 ## Files
 | File | What |
@@ -128,7 +134,12 @@ keine Telemetrie.
 - Datenschutz: Tastendrücke werden nur für die Displaytasten, die Reaktiv-Vorschau (nur im Speicher) und während
   *du* ein Makro aufnimmst oder eine Taste zuweist ausgewertet. Nichts wird protokolliert.
 
-## Voraussetzungen
+## Download (ohne Python)
+**`DarkMountDeck.exe`** aus dem [neuesten Release](https://github.com/Moepchi/dark-mount-deck/releases/latest) laden,
+in einen eigenen Ordner legen und starten. `deck.json`, `deck.log` und der Ordner `plugins` entstehen daneben.
+Windows SmartScreen kann warnen, weil die Datei nicht signiert ist: *Weitere Informationen → Trotzdem ausführen*.
+
+## Voraussetzungen (aus dem Quellcode)
 - Windows 10 / 11, be quiet! Dark Mount
 - Python 3.10+ und Pillow (`pip install -r requirements.txt`)
 - Optional: Node.js (für Node-Plugins), Microsoft Edge (für HTML-Plugins und Plugin-Einstellungen, bei Windows dabei)
@@ -138,10 +149,11 @@ keine Telemetrie.
 pip install -r requirements.txt
 pythonw deck.py
 ```
-- `pythonw deck.py --min` startet minimiert (z. B. aus dem Autostart-Ordner, `shell:startup`).
+- `pythonw deck.py --min` (bzw. `DarkMountDeck.exe --min`) startet minimiert (z. B. aus dem Autostart-Ordner, `shell:startup`).
 - **Vorher IO Center schließen** – die Tastatur nimmt nur ein Programm gleichzeitig an.
 - Einstellungen landen in `deck.json` neben dem Programm, Plugin-Ausgaben in `deck.log`.
 - Selbsttests: `python deck.py test` und `python sdhost.py test` (ohne Tastatur).
+- .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller --onefile --windowed --name DarkMountDeck deck.py`
 
 ## Lizenz
 MIT – siehe [LICENSE](LICENSE). Stream-Deck-Plugins behalten ihre eigenen Lizenzen. „be quiet!“, „Dark Mount“,
