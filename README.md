@@ -1,5 +1,16 @@
 <p align="center"><img src="docs/logo.png" width="220" alt="Dark Mount Deck logo"></p>
 
+<p align="center">
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/Moepchi/dark-mount-deck?color=0a7bbb"></a>
+  <a href="https://github.com/Moepchi/dark-mount-deck/actions/workflows/tests.yml"><img alt="tests" src="https://img.shields.io/github/actions/workflow/status/Moepchi/dark-mount-deck/tests.yml?branch=main&label=tests&logo=github"></a>
+  <img alt="python" src="https://img.shields.io/badge/python-%3E%3D3.10-3776ab?logo=python&logoColor=white">
+  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4">
+  <img alt="languages" src="https://img.shields.io/badge/UI-English%20%7C%20Deutsch-555">
+  <a href="https://github.com/Moepchi/dark-mount-deck/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/Moepchi/dark-mount-deck?color=e05d1a"></a>
+  <a href="https://github.com/Moepchi/dark-mount-deck/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/Moepchi/dark-mount-deck/total?color=e05d1a"></a>
+  <img alt="status" src="https://img.shields.io/badge/status-public%20beta-dfb317">
+</p>
+
 # Dark Mount Deck
 
 A lean, open replacement for IO Center for the **be quiet! Dark Mount** keyboard on Windows: the eight display keys
