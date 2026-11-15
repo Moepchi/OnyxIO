@@ -1589,7 +1589,7 @@ if __name__ == '__main__':
         assert app.cur() is None and app.llist.size() == 1  # only the base effect
         app.cfg['keymap'], km0 = {'Key_A': 30}, app.cfg.get('keymap')
         app.draw_keys()  # a mapped key without a layer shows the base effect
-        app.cfg['keymap'] = km0
+        app.cfg['keymap'] = km0 or {}
         app.layer_ed.set({'effect': 4, 'direction': 0, 'brightness': 50, 'speed': 50, 'colors': ['#ff0000', '#0000ff']})
         app.apply_layer()
         job, _ = app.dev.jobs.get_nowait()
