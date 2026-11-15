@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.png" width="220" alt="Dark Mount Deck logo"></p>
+
 # Dark Mount Deck
 
 A lean, open replacement for IO Center for the **be quiet! Dark Mount** keyboard on Windows: the eight display keys
@@ -67,7 +69,7 @@ pythonw deck.py
 - **Close IO Center first** – the keyboard accepts only one program at a time.
 - Settings are saved in `deck.json` next to the program; plugin output goes to `deck.log`.
 - Self-tests: `python deck.py test` and `python sdhost.py test` (no keyboard needed).
-- Build the .exe yourself: `pip install pyinstaller` then `pyinstaller --onefile --windowed --name DarkMountDeck deck.py`
+- Build the .exe yourself: `pip install pyinstaller` then `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico deck.py`
 
 ## Files
 | File | What |
@@ -153,7 +155,7 @@ pythonw deck.py
 - **Vorher IO Center schließen** – die Tastatur nimmt nur ein Programm gleichzeitig an.
 - Einstellungen landen in `deck.json` neben dem Programm, Plugin-Ausgaben in `deck.log`.
 - Selbsttests: `python deck.py test` und `python sdhost.py test` (ohne Tastatur).
-- .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller --onefile --windowed --name DarkMountDeck deck.py`
+- .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico deck.py`
 
 ## Lizenz
 MIT – siehe [LICENSE](LICENSE). Stream-Deck-Plugins behalten ihre eigenen Lizenzen. „be quiet!“, „Dark Mount“,
