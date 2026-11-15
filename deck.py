@@ -610,6 +610,10 @@ class App:
         self.choices.update({f'Plugin – {label}': ('plugin', au) for label, au in self.host.choices()})
         self.bg, self.icon, self.val, self.rot, self.turn = '#202020', '', tk.StringVar(), tk.IntVar(), tk.IntVar()
         root.title('Dark Mount Deck')
+        try:  # the .exe carries the icon itself
+            root.iconbitmap(default=sys.executable if lang.FROZEN else lang.HOME / 'icon.ico')
+        except tk.TclError:
+            pass
         root.protocol('WM_DELETE_WINDOW', root.iconify)  # keeps running like the Stream Deck app; "Beenden" quits
         nb = ttk.Notebook(root)
         nb.grid(row=0, column=0, columnspan=2, sticky='nsew', padx=10, pady=(10, 0))
