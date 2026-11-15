@@ -14,6 +14,7 @@ import lang, sdhost
 from lang import LANGS, tr
 
 CFG = lang.HOME / 'deck.json'
+ICON = Path(getattr(sys, '_MEIPASS', lang.HOME)) / 'icon.ico'  # bundled into the .exe
 COLS = 4  # 2 rows x 4 keys, like on the module
 MIN_GAP = 60  # s between two images on one key that nobody asked for (see Device.upload)
 LIGHT = {'effect': 2, 'direction': 4, 'brightness': 100, 'speed': 50, 'colors': dm.RAINBOW}  # what IO Center left
@@ -610,11 +611,12 @@ class App:
         self.choices.update({f'Plugin – {label}': ('plugin', au) for label, au in self.host.choices()})
         self.bg, self.icon, self.val, self.rot, self.turn = '#202020', '', tk.StringVar(), tk.IntVar(), tk.IntVar()
         root.title('Dark Mount Deck')
-        try:  # the .exe carries the icon itself
-            root.iconbitmap(default=sys.executable if lang.FROZEN else lang.HOME / 'icon.ico')
+        try:
+            root.iconbitmap(default=ICON)
         except tk.TclError:
             pass
-        root.protocol('WM_DELETE_WINDOW', root.iconify)  # keeps running like the Stream Deck app; "Beenden" quits
+        root.protocol('WM_DELETE_WINDOW', root.withdraw)  # keeps running in the tray like the Stream Deck app
+        self.tray = None
         nb = ttk.Notebook(root)
         nb.grid(row=0, column=0, columnspan=2, sticky='nsew', padx=10, pady=(10, 0))
         tab = ttk.Frame(nb)
@@ -1330,6 +1332,19 @@ class App:
             self.draw_tile(self.sel)
         return True
 
+    def tray_start(self):  # tray icon: click = show the window, menu = show / quit
+        import pystray
+        show = lambda: self.ui.put(self.show)
+        self.tray = pystray.Icon('darkmount', Image.open(ICON), 'Dark Mount Deck', pystray.Menu(
+            pystray.MenuItem(tr('Open'), show, default=True),
+            pystray.MenuItem(tr('Quit'), lambda: self.ui.put(self.root.destroy))))
+        self.tray.run_detached()
+
+    def show(self):
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
     def set_lang(self, code):  # texts are fixed at start: save, close, come back in the new language
         if code != lang.LANG and self.apply():
             self.cfg['lang'] = code
@@ -1781,9 +1796,11 @@ if __name__ == '__main__':
             RotatingFileHandler(lang.HOME / 'deck.log', maxBytes=200_000, backupCount=1, encoding='utf-8')])
         root = tk.Tk()
         app = App(root)
+        app.tray_start()
         if '--min' in sys.argv:
-            root.iconify()
+            root.withdraw()
         root.mainloop()
+        app.tray.stop()
         app.pi_close()
         app.host.stop()
         if app.restart:

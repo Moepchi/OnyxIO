@@ -73,6 +73,7 @@ DE = {
     'Folder …': 'Ordner …',
     'Apply': 'Übernehmen',
     'Quit': 'Beenden',
+    'Open': 'Öffnen',
     '(none)': '(keins)',
     'Images': 'Bilder',
     'All files': 'Alle Dateien',

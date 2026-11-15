@@ -55,7 +55,8 @@ work like a Stream Deck, plus lighting and macros. One Python program, no instal
 
 ### Other
 - English and German UI (switch bottom right; default follows the Windows display language).
-- Closing the window minimizes it; the keys keep working. **Quit** ends the program.
+- Closing the window hides it in the **system tray**; the keys keep working. Click the tray icon to open it again,
+  right-click → *Quit* (or the **Quit** button) ends the program. Windows 11 may put new tray icons in the ^ overflow.
 - Privacy: key presses are evaluated only for the display keys, the Reactive preview (memory only) and while *you*
   record a macro or assign a key. Nothing is logged.
 
@@ -68,7 +69,7 @@ Windows SmartScreen may warn because the file is not signed: *More info → Run 
 
 ## Requirements (running from source)
 - Windows 10 / 11, be quiet! Dark Mount
-- Python 3.10+ and Pillow (`pip install -r requirements.txt`)
+- Python 3.10+, Pillow and pystray (`pip install -r requirements.txt`)
 - Optional: Node.js (for Node plugins), Microsoft Edge (for HTML plugins and plugin settings, preinstalled on Windows)
 
 ## Start
@@ -80,7 +81,7 @@ pythonw deck.py
 - **Close IO Center first** – the keyboard accepts only one program at a time.
 - Settings are saved in `deck.json` next to the program; plugin output goes to `deck.log`.
 - Self-tests: `python deck.py test` and `python sdhost.py test` (no keyboard needed).
-- Build the .exe yourself: `pip install pyinstaller` then `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico deck.py`
+- Build the .exe yourself: `pip install pyinstaller` then `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico --add-data "icon.ico;." deck.py`
 
 ## Files
 | File | What |
@@ -143,7 +144,9 @@ keine Telemetrie.
 
 ### Sonstiges
 - Oberfläche auf Englisch und Deutsch (unten rechts umschalten; Standard folgt der Windows-Anzeigesprache).
-- Fenster schließen minimiert nur, die Tasten funktionieren weiter. **Beenden** beendet das Programm.
+- Fenster schließen legt es in den **Infobereich (Tray)**; die Tasten funktionieren weiter. Klick aufs Tray-Icon
+  öffnet es wieder, Rechtsklick → *Beenden* (oder der Knopf **Beenden**) beendet das Programm. Windows 11 legt neue
+  Tray-Icons eventuell unter ^ ab.
 - Datenschutz: Tastendrücke werden nur für die Displaytasten, die Reaktiv-Vorschau (nur im Speicher) und während
   *du* ein Makro aufnimmst oder eine Taste zuweist ausgewertet. Nichts wird protokolliert.
 
@@ -154,7 +157,7 @@ Windows SmartScreen kann warnen, weil die Datei nicht signiert ist: *Weitere Inf
 
 ## Voraussetzungen (aus dem Quellcode)
 - Windows 10 / 11, be quiet! Dark Mount
-- Python 3.10+ und Pillow (`pip install -r requirements.txt`)
+- Python 3.10+, Pillow und pystray (`pip install -r requirements.txt`)
 - Optional: Node.js (für Node-Plugins), Microsoft Edge (für HTML-Plugins und Plugin-Einstellungen, bei Windows dabei)
 
 ## Starten
@@ -166,7 +169,7 @@ pythonw deck.py
 - **Vorher IO Center schließen** – die Tastatur nimmt nur ein Programm gleichzeitig an.
 - Einstellungen landen in `deck.json` neben dem Programm, Plugin-Ausgaben in `deck.log`.
 - Selbsttests: `python deck.py test` und `python sdhost.py test` (ohne Tastatur).
-- .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico deck.py`
+- .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico --add-data "icon.ico;." deck.py`
 
 ## Lizenz
 MIT – siehe [LICENSE](LICENSE). Stream-Deck-Plugins behalten ihre eigenen Lizenzen. „be quiet!“, „Dark Mount“,
