@@ -1,0 +1,9 @@
+# personal: key setup, plugin settings, logs
+deck.json
+deck.log*
+bindings-backup.txt
+# installed plugins (third-party code, each has its own license)
+plugins/*
+!plugins/README.md
+__pycache__/
+*.pyc
