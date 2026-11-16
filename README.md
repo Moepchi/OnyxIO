@@ -87,7 +87,7 @@ pythonw deck.py
 - **Close IO Center first** – the keyboard accepts only one program at a time.
 - Settings are saved in `deck.json` next to the program; plugin output goes to `deck.log`.
 - Self-tests: `python deck.py test`, `python darkmount.py test` and `python sdhost.py test` (no keyboard needed).
-- Build the .exe yourself: `pip install pyinstaller` then `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico --add-data "icon.ico;." deck.py`
+- Build the .exe yourself: `pip install pyinstaller` then `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico --add-data "icon.ico;." --collect-all winrt deck.py` (`--collect-all winrt` bundles the Media Dock's now-playing support)
 
 ## Files
 | File | What |
@@ -182,7 +182,7 @@ pythonw deck.py
 - **Vorher IO Center schließen** – die Tastatur nimmt nur ein Programm gleichzeitig an.
 - Einstellungen landen in `deck.json` neben dem Programm, Plugin-Ausgaben in `deck.log`.
 - Selbsttests: `python deck.py test`, `python darkmount.py test` und `python sdhost.py test` (ohne Tastatur).
-- .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico --add-data "icon.ico;." deck.py`
+- .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico --add-data "icon.ico;." --collect-all winrt deck.py` (`--collect-all winrt` bundles the Media Dock's now-playing support)
 
 ## Lizenz
 MIT – siehe [LICENSE](LICENSE). Stream-Deck-Plugins behalten ihre eigenen Lizenzen. „be quiet!“, „Dark Mount“,
