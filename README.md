@@ -77,7 +77,8 @@ Windows SmartScreen may warn because the file is not signed: *More info → Run 
 pip install -r requirements.txt
 pythonw deck.py
 ```
-- `pythonw deck.py --min` (or `DarkMountDeck.exe --min`) starts minimized (e.g. from the Windows autostart folder, `shell:startup`).
+- **Start with Windows**: tick the box at the bottom right – Deck then starts in the tray when you log in.
+  `--min` starts it in the tray by hand.
 - **Close IO Center first** – the keyboard accepts only one program at a time.
 - Settings are saved in `deck.json` next to the program; plugin output goes to `deck.log`.
 - Self-tests: `python deck.py test` and `python sdhost.py test` (no keyboard needed).
@@ -165,7 +166,8 @@ Windows SmartScreen kann warnen, weil die Datei nicht signiert ist: *Weitere Inf
 pip install -r requirements.txt
 pythonw deck.py
 ```
-- `pythonw deck.py --min` (bzw. `DarkMountDeck.exe --min`) startet minimiert (z. B. aus dem Autostart-Ordner, `shell:startup`).
+- **Mit Windows starten**: Haken unten rechts setzen – Deck startet dann bei der Anmeldung im Tray.
+  `--min` startet es von Hand im Tray.
 - **Vorher IO Center schließen** – die Tastatur nimmt nur ein Programm gleichzeitig an.
 - Einstellungen landen in `deck.json` neben dem Programm, Plugin-Ausgaben in `deck.log`.
 - Selbsttests: `python deck.py test` und `python sdhost.py test` (ohne Tastatur).

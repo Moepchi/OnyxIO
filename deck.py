@@ -3,7 +3,7 @@
 Start: pythonw deck.py [--min]   (IO Center must not run: the keyboard allows only one session)
 Config: deck.json next to this file, edited in the window. Plugin log: deck.log. Self-check: python deck.py test
 """
-import ctypes, ctypes.wintypes as W, json, logging, math, os, queue, subprocess, sys, threading, time, uuid, webbrowser, zipfile
+import ctypes, ctypes.wintypes as W, json, winreg, logging, math, os, queue, subprocess, sys, threading, time, uuid, webbrowser, zipfile
 import tkinter as tk
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -401,6 +401,29 @@ def load():
     return cfg
 
 
+RUN = r'Software\Microsoft\Windows\CurrentVersion\Run'
+
+
+def autostart(on=None, name='DarkMountDeck'):
+    """Windows autostart (per user, starts in the tray). None: report and repoint a moved program; True/False: set."""
+    exe = [sys.executable] if lang.FROZEN else [str(Path(sys.executable).with_name('pythonw.exe')), os.path.abspath(__file__)]
+    cmd = subprocess.list2cmdline(exe) + ' --min'
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN) as k:
+        if on is None:
+            try:
+                on = winreg.QueryValueEx(k, name)[0] != ''
+            except OSError:
+                return False
+        if on:
+            winreg.SetValueEx(k, name, 0, winreg.REG_SZ, cmd)
+        else:
+            try:
+                winreg.DeleteValue(k, name)
+            except OSError:
+                pass
+    return on
+
+
 def blank_page(keys=()):
     return (list(keys) + [{'title': str(i + 1)} for i in range(len(keys), 8)])[:8]
 
@@ -705,6 +728,9 @@ class App:
         box.set(LANGS[lang.LANG])
         box.bind('<<ComboboxSelected>>', lambda e: self.set_lang(list(LANGS)[box.current()]))
         box.pack(side='left', padx=(0, 8))
+        self.auto = tk.BooleanVar(value=autostart())
+        ttk.Checkbutton(f, text=tr('Start with Windows'), variable=self.auto,
+                        command=lambda: autostart(self.auto.get())).pack(side='left', padx=(0, 12), before=box)
         ttk.Button(f, text=tr('Quit'), command=root.destroy).pack(side='left')
         self.dev = Device(lambda i: render(self.look(self.keys[i])), self.on_key)
         self.push_lights()
@@ -1785,6 +1811,9 @@ if __name__ == '__main__':
                     assert c.args[0].value in lang.DE, (f, c.args[0].value)
         assert set(MEDIA) - {'Play/Pause'} <= set(lang.DE) and set(dm.DIRECTIONS) <= set(lang.DE)
         assert set(dm.EFFECTS) - {'Tornado', 'Matrix'} <= set(lang.DE)
+        t = 'DarkMountDeckSelfTest'  # autostart on a throwaway entry
+        assert not autostart(None, t) and autostart(True, t) and autostart(None, t) and '--min' in winreg.QueryValueEx(
+            winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN), t)[0] and not autostart(False, t) and not autostart(None, t)
         lang.LANG = 'de'
         assert tr('Page {n} / {total}', n=1, total=2) == 'Seite 1 / 2'
         lang.LANG = 'en'

@@ -74,6 +74,7 @@ DE = {
     'Apply': 'Übernehmen',
     'Quit': 'Beenden',
     'Open': 'Öffnen',
+    'Start with Windows': 'Mit Windows starten',
     '(none)': '(keins)',
     'Images': 'Bilder',
     'All files': 'Alle Dateien',
