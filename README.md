@@ -53,6 +53,11 @@ work like a Stream Deck, plus lighting and macros. One Python program, no instal
 - Record keyboard and mouse, edit steps and delays, playback once / while held / repeat.
 - Assign a macro to a key or unbind it.
 
+### Media Dock
+- Accent color, 12 / 24 h clock, idle screen (clock or your own image), idle and display-off times – stored on the dock.
+- While the program runs: the time, **what is playing** (Spotify, browser, … with cover art) and the current page as
+  profile; the dock's ◀ ▶ arrows switch pages. The media keys on the dock work without any software.
+
 ### Other
 - English and German UI (switch bottom right; default follows the Windows display language).
 - Closing the window hides it in the **system tray**; the keys keep working. Click the tray icon to open it again,
@@ -69,7 +74,7 @@ Windows SmartScreen may warn because the file is not signed: *More info → Run 
 
 ## Requirements (running from source)
 - Windows 10 / 11, be quiet! Dark Mount
-- Python 3.10+, Pillow and pystray (`pip install -r requirements.txt`)
+- Python 3.10+, Pillow, pystray and the `winrt` packages for the Media Dock (`pip install -r requirements.txt`)
 - Optional: Node.js (for Node plugins), Microsoft Edge (for HTML plugins and plugin settings, preinstalled on Windows)
 
 ## Start
@@ -81,13 +86,13 @@ pythonw deck.py
   `--min` starts it in the tray by hand.
 - **Close IO Center first** – the keyboard accepts only one program at a time.
 - Settings are saved in `deck.json` next to the program; plugin output goes to `deck.log`.
-- Self-tests: `python deck.py test` and `python sdhost.py test` (no keyboard needed).
+- Self-tests: `python deck.py test`, `python darkmount.py test` and `python sdhost.py test` (no keyboard needed).
 - Build the .exe yourself: `pip install pyinstaller` then `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico --add-data "icon.ico;." deck.py`
 
 ## Files
 | File | What |
 |---|---|
-| `deck.py` | the program (window, display keys, lighting, macros) |
+| `deck.py` | the program (window, display keys, lighting, macros, Media Dock) |
 | `sdhost.py` | host for Stream Deck plugins |
 | `darkmount.py` | minimal client for the keyboard's protocol |
 | `lang.py` | UI texts: English → German |
@@ -143,6 +148,12 @@ keine Telemetrie.
 - Tastatur und Maus aufnehmen, Schritte und Pausen bearbeiten, abspielen einmal / solange gedrückt / wiederholen.
 - Makro einer Taste zuweisen oder lösen.
 
+### Media Dock
+- Menüfarbe, Uhr 12 / 24 h, Leerlaufgrafik (Uhr oder eigenes Bild), Zeiten für Leerlauf und Display aus – liegen auf
+  dem Dock.
+- Solange das Programm läuft: Uhrzeit, **was gerade läuft** (Spotify, Browser, … mit Cover) und die aktuelle Seite als
+  Profil; die Pfeile ◀ ▶ am Dock blättern die Seiten. Die Medientasten am Dock gehen auch ohne Software.
+
 ### Sonstiges
 - Oberfläche auf Englisch und Deutsch (unten rechts umschalten; Standard folgt der Windows-Anzeigesprache).
 - Fenster schließen legt es in den **Infobereich (Tray)**; die Tasten funktionieren weiter. Klick aufs Tray-Icon
@@ -158,7 +169,7 @@ Windows SmartScreen kann warnen, weil die Datei nicht signiert ist: *Weitere Inf
 
 ## Voraussetzungen (aus dem Quellcode)
 - Windows 10 / 11, be quiet! Dark Mount
-- Python 3.10+, Pillow und pystray (`pip install -r requirements.txt`)
+- Python 3.10+, Pillow, pystray und die `winrt`-Pakete fürs Media Dock (`pip install -r requirements.txt`)
 - Optional: Node.js (für Node-Plugins), Microsoft Edge (für HTML-Plugins und Plugin-Einstellungen, bei Windows dabei)
 
 ## Starten
@@ -170,7 +181,7 @@ pythonw deck.py
   `--min` startet es von Hand im Tray.
 - **Vorher IO Center schließen** – die Tastatur nimmt nur ein Programm gleichzeitig an.
 - Einstellungen landen in `deck.json` neben dem Programm, Plugin-Ausgaben in `deck.log`.
-- Selbsttests: `python deck.py test` und `python sdhost.py test` (ohne Tastatur).
+- Selbsttests: `python deck.py test`, `python darkmount.py test` und `python sdhost.py test` (ohne Tastatur).
 - .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico --add-data "icon.ico;." deck.py`
 
 ## Lizenz

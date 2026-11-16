@@ -187,6 +187,46 @@ class QLink:
         for off in range(9, len(data), 248):
             self.call(0x20, 0x02, struct.pack('<HI', key, off) + data[off:off + 248])
 
+    # --- Media Dock (0x21), byte layouts from IO Center's own traffic (PROTOCOL.md, Media Dock) ---
+    def dock_connected(self):  # GetState -> [state 01 = connected][pos 01 = left]
+        return self.call(0x21, 0x01)[:1] == b'\1'
+
+    def dock_config(self):  # GetConfig -> [R G B][clock 0=12h 1=24h][saver 1=clock 2=image][after s u16][off s u16]
+        return self.call(0x21, 0x02)[:9]
+
+    def set_dock_config(self, cfg):
+        self.call(0x21, 0x03, cfg)
+
+    def dock_time(self):  # SetDateTime: local wall clock as Unix seconds u64, IO Center sends it once a minute
+        self.call(0x21, 0x05, struct.pack('<Q', int(time.time()) + time.localtime().tm_gmtoff))
+
+    def dock_profile(self, name):
+        self.call(0x21, 0x09, pascal(name))
+
+    def dock_playback(self, state, pos, dur, artist, album, track):  # state 0 stopped, 1 playing, 2 paused; seconds
+        self.call(0x21, 0x0b, struct.pack('<BHH', state, min(pos, 65535), min(dur, 65535))
+                  + pascal(artist) + pascal(album) + pascal(track))
+
+    def dock_image(self, kind, im):  # kind 0 = screensaver 320x240 (flash), 1 = cover art 70x70
+        data = dock_rgb565(im)
+        self.call(0x21, 0x07, struct.pack('<BI', kind, 0) + data[:9])  # [kind][offset u32][chunk], header alone first
+        for off in range(9, len(data), 248):
+            self.call(0x21, 0x07, struct.pack('<BI', kind, off) + data[off:off + 248])
+
+
+def pascal(s):  # [len u8][UTF-8], cut on a character boundary
+    b = s.encode()[:120].decode('utf-8', 'ignore').encode()
+    return bytes([len(b)]) + b
+
+
+def dock_rgb565(im):  # -> 9-byte header (format 1) + little-endian RGB565 pixels, checked against IO Center's upload
+    from PIL import Image, ImageChops
+    r, g, b = im.convert('RGB').split()  # pixel = RRRRRGGG GGGBBBBB, low byte first; Pillow has no RGB565 packer
+    lo = ImageChops.add(g.point(lambda v: (v >> 2 & 7) << 5), b.point(lambda v: v >> 3))
+    hi = ImageChops.add(r.point(lambda v: v >> 3 << 3), g.point(lambda v: v >> 5))
+    raw = Image.merge('LA', (lo, hi)).tobytes()
+    return struct.pack('<IHHB', 9 + len(raw), im.width, im.height, 1) + raw
+
 
 EFFECTS = ['Static', 'Color wave', 'Tornado', 'Breathing', 'Reactive', 'Matrix']  # Lightings effect id = index
 DIRECTIONS = ['Up', 'Down', 'Left', 'Right', 'Clockwise', 'Counterclockwise']
@@ -206,7 +246,7 @@ def layer_config(effect, direction, brightness, speed, colors):
 
 def key_jpeg(im):  # PIL image -> JPEG for a display key; the displays sit rotated 90° CCW, so pre-rotate CW
     out = io.BytesIO()
-    im.rotate(-90).save(out, 'JPEG', quality=90)
+    im.rotate(-90).convert('RGB').save(out, 'JPEG', quality=90, optimize=True)  # optimize: ~30 % fewer bytes, lossless
     return out.getvalue()
 
 
@@ -271,6 +311,17 @@ if __name__ == '__main__':
     QLink.show_leds(fake, {i: (1, 2, 3) for i in range(74)})
     assert [p[0] for p in sent] == [40, 35] and len(sent[0]) == 241 and len(sent[1]) == 206 and sent[1][-1] == 0
     assert sent[0][1:7] == bytes.fromhex('030000010203')
+    sent.clear()  # Media Dock frames as IO Center sent them
+    fake.call = lambda f, c, p=b'': sent.append((f, c, p))
+    QLink.dock_playback(fake, 2, 87, 218, 'Lumaraa', 'Mein Hund', 'Mein Hund')
+    QLink.dock_profile(fake, 'Profil 1 (importiert)')
+    assert sent == [(0x21, 0x0b, bytes.fromhex('025700da00074c756d61726161094d65696e2048756e64094d65696e2048756e64')),
+                    (0x21, 0x09, bytes.fromhex('1550726f66696c20312028696d706f72746965727429'))]
+    from PIL import Image
+    sent.clear()
+    QLink.dock_image(fake, 0, Image.new('RGB', (320, 240), (255, 0, 0)))
+    assert sent[0][2] == bytes.fromhex('0000000000' '095802004001f00001') and sent[1][2][:7] == bytes.fromhex('00090000' '0000f8')
+    assert sum(len(p) - 5 for *_, p in sent) == 153609 and len(sent) == 1 + 620
     if len(sys.argv) > 1 and sys.argv[1] == 'test':
         print('ok')
     elif sys.argv[1:2] == ['unbind']:  # display keys -> Disable (00): no OS action, presses only reach us

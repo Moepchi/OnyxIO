@@ -108,13 +108,28 @@ stehen dort als UTF-16-Tabelle `GetLightingMode|SetLightingMode|…`. Bevor ein 
   `msvcrt.open_osfhandle` lehnt HID-Handles ab.
 - Zwei Handles, eines zum Lesen und eines zum Schreiben: Ein blockierendes `ReadFile` würde sonst `WriteFile` aufhalten.
 
-## Media Dock (Display links)
+## Media Dock (Display links, MediaDockModule 0x21)
 
-- `GetConfig` → `dc4d00 01 01 1e00 0000` = Akzentfarbe RGB, 24h-Uhr, Screensaver Clock, nach 30 s aktiv, nie aus.
-- `SetDateTime` Params: Unix-Zeit u64.
-- Bilder `GetImage`/`SetImage`: `[type u8][offset u32][size/chunk]`, 320×240 RGB565 (Format 1), Header wie oben.
-  Typ 0 = Screensaver. IO Center bekommt bei Artwork-Uploads oft `InvalidParameter`.
-- `SetPlaybackInfo`: Mediainfos (Titel als Pascal-String), `SetProfileInfo`: Profilname als Pascal-String.
+Alle Layouts aus IO Centers eigenem Verkehr, Zahlen little-endian, Strings Pascal (`[len u8][UTF-8]`).
+
+| Befehl | Params / Antwort |
+|---|---|
+| `GetState 01` | → `[state 01 = verbunden][pos 01 = links]` |
+| `GetConfig 02` / `SetConfig 03` | 9 Byte `[R G B][Uhr 0=12h 1=24h][Leerlauf 1=Uhr 2=Bild][nach s u16][aus nach s u16, 0=nie]`, Werkszustand `dc4d0001011e000000`. `SetConfig` braucht bis ~0,7 s (Flash). Den Leerlaufwert 0 („Disabled“) kennt IO Centers Enum, sendet ihn aber nie – Deck auch nicht. |
+| `SetDateTime 05` | u64 lokale Uhrzeit als Unix-Sekunden (`time() + tm_gmtoff`), IO Center schickt sie jede Minute |
+| `SetImage 07` | `[typ u8][offset u32][chunk]`; zuerst der Header allein `[gesamt u32][w u16][h u16][format 01]` (9 Byte), dann Pixel in 248-Byte-Stücken. Pixel RGB565 little-endian (`RRRRRGGG GGGBBBBB`, Low-Byte zuerst). Typ 0 = Leerlaufbild 320×240 (153609 Byte, bleibt nach dem Abstecken = Flash), Typ 1 = Cover 70×70 (9809 Byte, IO Center schickt es bei jedem Titelwechsel und bekommt dabei manchmal `InvalidParameter`). |
+| `SetProfileInfo 09` | Pascal-String, im Dock-Menü „Profil“ |
+| `SetPlaybackInfo 0b` | `[state u8: 0 Stopp, 1 läuft, 2 Pause][pos s u16][dauer s u16]` + Pascal Künstler, Album, Titel; IO Center sendet nur bei Status- oder Titelwechsel, das Dock zählt selbst weiter |
+
+Notifications: DateTimeChanged, ProfileInfoChanged, ConfigChanged (`[sid]00`+Config), PlaybackInfoChanged,
+ImageChanged `[sid][typ]`.
+
+Tasten am Dock: Die vier Medientasten (0x75–0x78) sind per Firmware als Media-Aktionen belegt und gehen ohne Software.
+Die Pfeile ◀ ▶ melden `Bindings.ActionFired` `[key u16][flag][aktion 08 = Profil][daten]`, Daten 04 = ◀, 03 = ▶
+(am Gerät geprüft). ActionFired kommt nur, solange `Macros.StartRecording` läuft, das Deck ohnehin sendet.
+
+„Was gerade läuft“ liest `deck.py` aus Windows (`GlobalSystemMediaTransportControlsSessionManager` über die
+`winrt`-Pakete), das Cover ist dort ein Stream-Thumbnail.
 
 ## Beleuchtung (0x10)
 
@@ -199,7 +214,8 @@ Live geprüft am 14.11.2026, jeweils mit Blick auf die Tastatur.
 Displaybilder bleiben nach dem Abstecken erhalten (bestätigt), liegen also im Flash. Jeder `SetImage`-Upload ist ein
 Schreibvorgang. `deck.py` sendet deshalb keine unveränderten Bilder und lädt pro Taste höchstens ein Bild je `MIN_GAP`
 (60 s) hoch, außer nach „Übernehmen“ oder bis 3 s nach einem Druck auf die Taste. Die Beleuchtung wird nur bei
-„Übernehmen“ geschrieben, nie beim Verbinden.
+„Übernehmen“ geschrieben, nie beim Verbinden. Media-Dock-Einstellungen und Leerlaufbild ebenso nur mit „Übernehmen“,
+und nur wenn sie sich vom Stand auf dem Dock (Config) bzw. vom zuletzt gesendeten Bild (CRC) unterscheiden.
 
 ## Stream-Deck-Plugins (`sdhost.py`)
 

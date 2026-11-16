@@ -3,7 +3,7 @@
 Start: pythonw deck.py [--min]   (IO Center must not run: the keyboard allows only one session)
 Config: deck.json next to this file, edited in the window. Plugin log: deck.log. Self-check: python deck.py test
 """
-import ctypes, ctypes.wintypes as W, json, winreg, logging, math, os, queue, subprocess, sys, threading, time, uuid, webbrowser, zipfile
+import ctypes, ctypes.wintypes as W, io, json, winreg, logging, math, os, queue, struct, subprocess, sys, threading, time, uuid, webbrowser, zipfile, zlib
 import tkinter as tk
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -17,6 +17,9 @@ CFG = lang.HOME / 'deck.json'
 ICON = Path(getattr(sys, '_MEIPASS', lang.HOME)) / 'icon.ico'  # bundled into the .exe
 COLS = 4  # 2 rows x 4 keys, like on the module
 MIN_GAP = 60  # s between two images on one key that nobody asked for (see Device.upload)
+DOCK_HOLD = 10  # s a mirrored display key stays on the dock before now playing returns
+DOCK = {'color': '#dc4d00', 'h24': True, 'saver': 1, 'after': 30, 'off': 0, 'image': '', 'media': True,
+        'pages': True}  # IO Center's factory values
 LIGHT = {'effect': 2, 'direction': 4, 'brightness': 100, 'speed': 50, 'colors': dm.RAINBOW}  # what IO Center left
 ACTIONS = {  # id: (label, hint)
     'none': (tr('No action'), ''),
@@ -394,6 +397,7 @@ def load():
     cfg['pages'] = [blank_page(p) for p in pages]
     cfg['page'] = max(0, min(cfg.get('page', 0), len(cfg['pages']) - 1))
     cfg.setdefault('light', dict(LIGHT))
+    cfg['dock'] = {**DOCK, **cfg.get('dock', {})}
     cfg.pop('keycolors', None)  # replaced by layers
     for L in cfg.get('layers', []):  # whole edges became single LEDs
         L['keys'] = [m for n in L['keys'] for m in ([k for k, i in FRAMELEDS.items() if i in FRAMES[n]]
@@ -444,6 +448,9 @@ class Device(threading.Thread):
         self.lights = None  # fn(t, hits) -> {ledId: rgb}: Deck draws every LED (realtime); None = the keyboard's effect
         self.hits = {}  # key id -> time of its last press, only for Reaktiv; memory only, dropped after 3 s
         self.record = None  # fn(key id, down) while the user records a macro or picks a key for one, else None
+        self.dock_name = ''  # Media Dock: profile line (the page), now playing ((state, pos, dur, artist, album, title), art)
+        self.dock_media, self.on_dock = None, None  # on_dock(step): dock arrow ◀ / ▶ pressed
+        self.dock_keys, self.dock_flash = {}, None  # {key index: label} to mirror on the dock; (label, image, time)
 
     def run(self):
         while True:
@@ -457,7 +464,7 @@ class Device(threading.Thread):
                         ql.set_binding(key, 0)
                 # key events need Macros.StartRecording; it streams every keystroke, all but display keys are dropped
                 ql.call(0x12, 0x09, bytes.fromhex('0308090b'))
-                self.state, last, pending = tr('connected'), 0, dict.fromkeys(range(8), False)
+                self.state, last, pending, dock = tr('connected'), 0, dict.fromkeys(range(8), False), {}
                 shown, rt, full = {}, False, 0  # LEDs on the keyboard, realtime mode on, last full frame
                 while True:
                     while not self.dirty.empty():
@@ -474,6 +481,7 @@ class Device(threading.Thread):
                             self.state = tr('connected, error: {e}', e=e)
                         rt = False  # set_lighting left realtime
                     lights, now = self.lights, time.monotonic()
+                    self.dock_sync(ql, dock, now)
                     if rt and not lights:
                         ql.call(0x10, 0x02, b'\1')  # back to the keyboard's own effect
                         rt = False
@@ -494,10 +502,12 @@ class Device(threading.Thread):
                         ql.keep_alive()
                         last = now
                     try:
-                        wait = max(.001, last + 1 / FPS - time.monotonic()) if lights else .2
-                        _, _, feat, _, p = ql.notes.get(timeout=wait)
+                        wait = max(.001, last + 1 / FPS - time.monotonic()) if lights else .05  # picks up uploads soon
+                        _, _, feat, cmd, p = ql.notes.get(timeout=wait)
                     except queue.Empty:
                         continue
+                    if (feat, cmd) == (0x11, 0x02) and len(p) > 3 and p[3] == 8 and self.on_dock:  # ActionFired, action Profile:
+                        self.on_dock({3: 1, 4: -1}.get(p[4] if len(p) > 4 else 0, 0))  # the dock's ▶ (03) / ◀ (04)
                     if feat == 0x12 and len(p) >= 3 and p[0] in (8, 9):  # InputEvent pressed / released
                         key = int.from_bytes(p[1:3], 'little')
                         rec = self.record  # only while the user asked for it (Makros: Aufnehmen / Taste zuweisen)
@@ -518,6 +528,41 @@ class Device(threading.Thread):
                     ql.close()
                 time.sleep(5)
 
+    def dock_sync(self, ql, sent, now):  # Media Dock: only what changed; every minute the clock, like IO Center
+        if now - sent.get('clock', -1e9) > 60:  # also notices the dock being attached or taken off
+            on = ql.dock_connected()
+            if not on or not sent.get('on'):
+                sent.clear()
+            if on:
+                ql.dock_time()
+            sent.update(clock=now, on=on)
+        if not sent['on']:
+            return
+        if self.dock_name != sent.get('name'):
+            ql.dock_profile(self.dock_name)
+            sent['name'] = self.dock_name
+        flash = self.dock_flash  # a mirrored display key, shown for DOCK_HOLD s, then back to now playing
+        if flash and now - flash[2] < DOCK_HOLD:
+            tag = ('flash', flash[2])
+            if tag != sent.get('media'):
+                ql.dock_playback(1, 0, 0, '', '', flash[0])
+                try:
+                    ql.dock_image(1, ImageOps.fit(flash[1].convert('RGB'), (70, 70)))
+                except dm.QLinkError:
+                    pass
+                sent['media'], sent['art'] = tag, None  # drop the art cache so now playing redraws its cover afterwards
+            return
+        m = self.dock_media
+        if m and m[0] != sent.get('media'):
+            ql.dock_playback(*m[0])
+            sent['media'] = m[0]
+            if m[1] and m[1] != sent.get('art'):
+                sent['art'] = m[1]
+                try:  # cover art, not kept over unplugging (IO Center sends it with every track)
+                    ql.dock_image(1, ImageOps.fit(Image.open(io.BytesIO(m[1])), (70, 70)))
+                except dm.QLinkError:  # IO Center gets InvalidParameter here now and then, too
+                    pass
+
     def upload(self, ql, i, force):
         """True when key i is done, False to try again later.
         ponytail: the keys keep their images across unplugging, so they sit in the keyboard's flash and every upload
@@ -528,14 +573,75 @@ class Device(threading.Thread):
         old, t = self.sent.get(i, (None, -1e9))
         if not force and now - t < MIN_GAP and now - self.pressed.get(i, -1e9) > 3:
             return False
-        jpeg = dm.key_jpeg(self.look(i))
+        img = self.look(i)
+        jpeg = dm.key_jpeg(img)
         if jpeg != old:
             ql.set_key_image(0x6d + i, jpeg)
             self.sent[i] = (jpeg, now)
+            if i in self.dock_keys:  # a mirrored key changed: show it on the dock (dock_sync does the sending)
+                self.dock_flash = (self.dock_keys[i], img, now)
         return True
 
 
-BG, FIELD, LINE, FG, DIM, SEL = '#1e1e1e', '#2b2b2b', '#3c3c3c', '#e0e0e0', '#7a7a7a', '#4a8fe7'
+def watch_media(dev, enabled):
+    """Thread: Windows' "now playing" (Spotify, browser, VLC, …) -> dev.dock_media, like IO Center does. Polls once a
+    second; a new entry only when track or play state change or the position jumps (the dock counts on by itself)."""
+    try:
+        import asyncio, datetime
+        from winrt.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as Manager
+        from winrt.windows.storage.streams import Buffer, InputStreamOptions
+    except ImportError:
+        return log.info('now playing: winrt packages missing')
+
+    async def art(p):
+        if not p.thumbnail:
+            return None
+        st = await p.thumbnail.open_read_async()
+        buf = Buffer(st.size)
+        await st.read_async(buf, st.size, InputStreamOptions.READ_AHEAD)
+        return bytes(buf)
+
+    async def run():
+        mgr, last, at = await Manager.request_async(), None, 0
+        while True:
+            try:
+                s = enabled() and mgr.get_current_session()
+                info = (0, 0, 0, '', '', '')
+                if s:
+                    p, tl = await s.try_get_media_properties_async(), s.get_timeline_properties()
+                    state = {4: 1, 5: 2}.get(int(s.get_playback_info().playback_status), 0)  # Playing, Paused -> 1, 2
+                    pos = tl.position.total_seconds()
+                    if state == 1:  # the app reports the position only now and then
+                        pos += (datetime.datetime.now(datetime.timezone.utc) - tl.last_updated_time).total_seconds()
+                    info = (state, int(pos), int(tl.end_time.total_seconds()), p.artist, p.album_title, p.title)
+                now = time.monotonic()
+                guess = last[0][1] + (now - at if last[0][0] == 1 else 0) if last else 0
+                if not last or info[:1] + info[2:] != last[0][:1] + last[0][2:] or abs(info[1] - guess) > 3:
+                    cover = last[1] if last and info[3:] == last[0][3:] else s and await art(p)
+                    last, at = (info, cover), now
+                    dev.dock_media = last
+            except Exception as e:  # player closed mid-query and the like: try again next second
+                log.info('now playing: %r', e)
+            await asyncio.sleep(1)
+
+    try:
+        asyncio.run(run())
+    except Exception:  # never worth a crash: the dock just stops showing it
+        log.exception('now playing')
+
+
+def dock_conf(d):  # -> the dock's 9 config bytes [R G B][clock 1=24h][saver 1=clock 2=image][after s u16][off s u16]
+    return bytes.fromhex(d['color'][1:]) + struct.pack('<BBHH', d['h24'], d['saver'], d['after'], d['off'])
+
+
+def dock_picture(path):  # -> 320x240, cropped to fill; None without a usable file
+    try:
+        return ImageOps.fit(Image.open(path).convert('RGB'), (320, 240)) if path else None
+    except OSError:
+        return None
+
+
+BG, FIELD, LINE, FG, DIM, SEL ='#1e1e1e', '#2b2b2b', '#3c3c3c', '#e0e0e0', '#7a7a7a', '#4a8fe7'
 
 
 def dark(root):
@@ -712,7 +818,10 @@ class App:
             b.pack(side='left')
         self.hint = ttk.Label(ed, foreground='gray')
         self.hint.grid(row=9, column=1, columnspan=2, sticky='w')
-        ttk.Button(ed, text=tr('Apply'), command=lambda: self.apply() and self.pi_show()).grid(row=10, column=2, sticky='e', pady=(12, 0))
+        self.kdock = tk.BooleanVar()
+        ttk.Checkbutton(ed, text=tr('Mirror on the Media Dock'), variable=self.kdock).grid(
+            row=10, column=1, columnspan=2, sticky='w', pady=(6, 0))
+        ttk.Button(ed, text=tr('Apply'), command=lambda: self.apply() and self.pi_show()).grid(row=11, column=2, sticky='e', pady=(12, 0))
         n = len(self.host.plugins)
         ttk.Label(tab, foreground='gray', padding=(10, 0, 10, 8), text=tr(
             'Stream Deck plugins loaded: {n}, skipped: {skipped} (encrypted Marketplace plugins, list in deck.log; '
@@ -720,6 +829,7 @@ class App:
             row=2, column=0, columnspan=2, sticky='w')
         self.build_keys(nb)
         self.build_macros(nb)
+        self.build_dock(nb)
         self.status = ttk.Label(root, padding=(10, 0))
         self.status.grid(row=1, column=0, sticky='w', pady=10)
         f = ttk.Frame(root)
@@ -733,18 +843,109 @@ class App:
                         command=lambda: autostart(self.auto.get())).pack(side='left', padx=(0, 12), before=box)
         ttk.Button(f, text=tr('Quit'), command=root.destroy).pack(side='left')
         self.dev = Device(lambda i: render(self.look(self.keys[i])), self.on_key)
+        self.dev.on_dock = lambda step: step and self.cfg['dock']['pages'] and self.ui.put(
+            lambda: self.goto(self.cfg['page'] + step))
         self.push_lights()
         self.load_macros()  # waits in the job queue until the keyboard is there
         if connect:
             log.info('plugins: %s; skipped: %s', sorted(self.host.plugins), self.host.skipped)
             self.host.start()
             self.dev.start()
+            threading.Thread(target=watch_media, args=(self.dev, lambda: self.cfg['dock']['media']), daemon=True).start()
         for i in range(8):
             self.draw_tile(i)
         self.show_page()
         self.select(0)
         root.resizable(False, False)  # fixed size: everything visible, nothing to scale
         self.poll()
+
+    # --- Media Dock: color, clock, idle screen and image sit in the dock's flash and go there only with Apply;
+    # time, page name and now playing are sent live by Device.dock_sync
+    def build_dock(self, nb):
+        t = ttk.Frame(nb, padding=10)
+        nb.add(t, text='Media Dock')
+        d, ed = self.cfg['dock'], ttk.Frame(t)
+        ed.grid(row=0, column=0, sticky='nw')
+        for r, text in enumerate([tr('Accent color'), tr('Clock'), tr('Idle screen'), tr('Show idle screen after'),
+                                  tr('Turn display off after'), tr('Idle image')]):
+            ttk.Label(ed, text=text).grid(row=r, column=0, sticky='w', padx=(0, 12), pady=4)
+        self.dk_color = tk.Button(ed, width=6, command=self.pick_dock_color)
+        self.dk_color.grid(row=0, column=1, sticky='w')
+        self.dk_clock = ttk.Combobox(ed, state='readonly', values=['24h', '12h'], width=10)
+        self.dk_saver = ttk.Combobox(ed, state='readonly', values=[tr('Clock'), tr('Image')], width=10)
+        self.dk_after = ttk.Spinbox(ed, from_=5, to=3600, increment=5, width=8)
+        self.dk_off = ttk.Spinbox(ed, from_=0, to=3600, increment=10, width=8)
+        for r, w in enumerate((self.dk_clock, self.dk_saver, self.dk_after, self.dk_off), 1):
+            w.grid(row=r, column=1, sticky='w', pady=4)
+        ttk.Label(ed, text='s').grid(row=3, column=2, sticky='w')
+        ttk.Label(ed, text=tr('s (0 = never)')).grid(row=4, column=2, sticky='w')
+        f = ttk.Frame(ed)
+        f.grid(row=5, column=1, columnspan=2, sticky='w')
+        ttk.Button(f, text=tr('Choose …'), command=self.pick_dock_image).pack(side='left')
+        ttk.Button(f, text=tr('Remove'), command=lambda: self.set_dock_image('')).pack(side='left')
+        self.dk_img = tk.Label(ed, bg=FIELD)
+        self.dk_img.grid(row=6, column=1, columnspan=2, sticky='w', pady=4)
+        self.dk_media, self.dk_pages = tk.BooleanVar(value=d['media']), tk.BooleanVar(value=d['pages'])
+        ttk.Checkbutton(ed, text=tr('Show what is playing (Spotify, browser, …)'), variable=self.dk_media,
+                        command=self.dock_switches).grid(row=7, column=0, columnspan=3, sticky='w', pady=(8, 0))
+        ttk.Checkbutton(ed, text=tr('Dock arrows ◀ ▶ switch pages, the page is shown as profile'),
+                        variable=self.dk_pages, command=self.dock_switches).grid(row=8, column=0, columnspan=3, sticky='w')
+        ttk.Button(ed, text=tr('Apply'), command=self.apply_dock).grid(row=9, column=2, sticky='e', pady=(12, 0))
+        ttk.Label(t, foreground='gray', wraplength=380, text=tr(
+            'Color, clock, idle screen and image are stored on the dock and written only with Apply. '
+            'Time, page and what is playing are sent while Deck runs.')).grid(row=0, column=1, sticky='nw', padx=(24, 0))
+        self.dk_color.config(bg=d['color'], activebackground=d['color'])
+        self.dk_clock.current(0 if d['h24'] else 1)
+        self.dk_saver.current(d['saver'] - 1)
+        self.dk_after.set(d['after'])
+        self.dk_off.set(d['off'])
+        self.set_dock_image(d['image'])
+
+    def pick_dock_color(self):
+        c = colorchooser.askcolor(self.dk_color.cget('bg'), parent=self.root)[1]
+        if c:
+            self.dk_color.config(bg=c, activebackground=c)
+
+    def pick_dock_image(self):
+        p = filedialog.askopenfilename(parent=self.root, filetypes=[
+            (tr('Images'), '*.png *.jpg *.jpeg *.gif *.bmp *.ico *.webp'), (tr('All files'), '*.*')])
+        if p:
+            self.set_dock_image(os.path.normpath(p))
+            self.dk_saver.current(1)
+
+    def set_dock_image(self, path):
+        self.dk_path, im = path, dock_picture(path)
+        self.dk_photo = ImageTk.PhotoImage(im.resize((160, 120)) if im else Image.new('RGB', (160, 120), FIELD))
+        self.dk_img.config(image=self.dk_photo)
+
+    def dock_switches(self):  # take effect at once, nothing goes to the dock's flash
+        self.cfg['dock'].update(media=self.dk_media.get(), pages=self.dk_pages.get())
+        save(self.cfg)
+        self.show_page()
+
+    def apply_dock(self):
+        d = self.cfg['dock']
+        try:
+            after, off = int(self.dk_after.get()), int(self.dk_off.get())
+            assert 5 <= after <= 3600 and 0 <= off <= 3600
+        except (ValueError, AssertionError):
+            return messagebox.showerror('Dark Mount Deck', tr('Times: 5 – 3600 s, display off 0 – 3600 s.'),
+                                        parent=self.root)
+        d.update(color=self.dk_color.cget('bg'), h24=self.dk_clock.current() == 0, saver=self.dk_saver.current() + 1,
+                 after=after, off=off, image=self.dk_path)
+        self.dock_switches()  # also saves
+        conf = dock_conf(d)
+        im = dock_picture(d['image'])
+        crc = im and zlib.crc32(im.tobytes())
+        new = im and crc != d.get('sent')  # the 150 KB image only when it changed: it goes into flash
+
+        def job(ql):
+            if ql.dock_config() != conf:
+                ql.set_dock_config(conf)
+            if new:
+                ql.dock_image(0, im)
+                self.ui.put(lambda: (d.update(sent=crc), save(self.cfg)))
+        self.dev.jobs.put((job, tr('Media Dock settings applied')))
 
     # --- lighting: the base effect (bottom of the layer list) lives on the keyboard, the layers above it come from Deck
     def apply_light(self):
@@ -1298,6 +1499,7 @@ class App:
         self.title.insert('1.0', k.get('title', ''))
         self.rot.set(k.get('rot', 0))
         self.turn.set(k.get('turn', 0))
+        self.kdock.set(bool(k.get('dock')))
         self.set_bg(k.get('bg') or '#202020')
         self.set_icon(k.get('icon', ''))
         a = k.get('action', 'none')
@@ -1328,6 +1530,8 @@ class App:
             v = next((m for m in MEDIA if tr(m) == v), v)
         k = {'title': self.title.get('1.0', 'end-1c').strip(), 'bg': self.bg, 'icon': self.icon,
              'rot': self.rot.get(), 'turn': self.turn.get(), 'action': a, 'value': au or (v.strip('"') if a == 'open' else v)}
+        if self.kdock.get():  # kept out of the config unless on, to stay lean
+            k['dock'] = True
         if a == 'plugin':  # same plugin action keeps its instance id and settings, like moving nothing in Stream Deck
             old = self.keys[self.sel]
             same = old.get('action') == 'plugin' and old.get('value') == au
@@ -1356,6 +1560,7 @@ class App:
                 self.host.appear(self.sel)
             self.dev.dirty.put((self.sel, True))
             self.draw_tile(self.sel)
+            self.show_page()  # refreshes the dock's list of mirrored keys
         return True
 
     def tray_start(self):  # tray icon: click = show the window, menu = show / quit
@@ -1390,6 +1595,8 @@ class App:
             pages.pop(self.cfg['page'])
         self.cfg['page'] = min(n, len(pages) - 1) if drop else n % len(pages)
         save(self.cfg)
+        now = time.monotonic()  # the user asked for the new page: plugin images that follow go out at once (MIN_GAP)
+        self.dev.pressed.update(dict.fromkeys(range(8), now))
         for i, k in enumerate(self.keys):
             if k.get('action') == 'plugin':
                 self.host.appear(i)
@@ -1400,6 +1607,8 @@ class App:
 
     def show_page(self):
         self.page_lbl.config(text=tr('Page {n} / {total}', n=self.cfg['page'] + 1, total=len(self.cfg['pages'])))
+        self.dev.dock_name = self.page_lbl.cget('text') if self.cfg['dock']['pages'] else 'Dark Mount Deck'
+        self.dev.dock_keys = {i: (k.get('title') or '') for i, k in enumerate(self.keys) if k.get('dock')}
 
     def add_page(self):
         if self.apply():
@@ -1600,6 +1809,7 @@ if __name__ == '__main__':
         assert parse_hotkey('Ctrl + Shift+M') == [0x11, 0x10, 0x4D] and parse_hotkey('win+f13') == [0x5B, 0x7C]
         assert render({'title': 'Hallo\nWelt', 'bg': '#ffffff'}).size == (120, 120)
         assert load()['pages'][0][7].get('title') is not None and 'light' in load()
+        assert dock_conf(DOCK).hex() == 'dc4d0001011e000000' and dock_picture('') is None  # IO Center's factory bytes
         buf = io.BytesIO()  # a tall red bar turned 90° must fill the width
         Image.new('RGBA', (10, 30), 'red').save(buf, 'PNG')
         assert render({'icon': io.BytesIO(buf.getvalue()), 'rot': 90}).getpixel((20, 60))[0] > 200
@@ -1617,6 +1827,20 @@ if __name__ == '__main__':
         assert not dev.upload(ql, 0, False) and ql.n == 1  # changed within MIN_GAP: held back
         dev.pressed[0] = time.monotonic()
         assert dev.upload(ql, 0, False) and ql.n == 2  # right after a press: at once
+        dev.dock_keys, shown[0] = {0: 'Living room'}, 'c'  # a mirrored key: its change arms a dock flash
+        dev.upload(ql, 0, True)
+        assert dev.dock_flash and dev.dock_flash[0] == 'Living room'
+        plays = []  # dock_sync shows the flash, then (once it ages out) falls back to now playing
+        ql.dock_playback = lambda *a: plays.append(a)
+        ql.dock_image = ql.dock_profile = ql.dock_time = lambda *a: None
+        ql.dock_connected = lambda: True
+        dev.dock_media = ((2, 0, 0, '', '', 'Song'), None)
+        st = {}
+        dev.dock_sync(ql, st, time.monotonic())
+        assert plays[-1] == (1, 0, 0, '', '', 'Living room')  # the mirrored label
+        dev.dock_flash = (dev.dock_flash[0], dev.dock_flash[1], time.monotonic() - DOCK_HOLD - 1)  # expired
+        dev.dock_sync(ql, st, time.monotonic())
+        assert plays[-1] == (2, 0, 0, '', '', 'Song')  # now playing is back
         root = tk.Tk()  # GUI smoke test without touching the keyboard
         app = App(root, connect=False)
         for v, want in ((43, 45), (-131, -135), (30, 30), (178, 180)):
@@ -1800,6 +2024,7 @@ if __name__ == '__main__':
         assert app.action_id() == ('url', None) and app.keys[0].get('action') in (None, 'none')
         app.goto(-1)
         assert app.cfg['page'] == 1 and 'plugin action' in app.pi_lbl.cget('text')
+        assert all(time.monotonic() - app.dev.pressed[i] < 5 for i in range(8))  # plugin images pass MIN_GAP
         app.goto(1, drop=True)
         assert app.cfg['pages'] and len(app.cfg['pages']) == 1 and app.cfg['page'] == 0
         assert app.tree.get_children() and app.tree.get_children(app.tree.get_children()[0])
