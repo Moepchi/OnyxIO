@@ -1,5 +1,5 @@
-"""Minimal QLink client for the be quiet! Dark Mount (Windows, stdlib + Pillow). Protocol: PROTOCOL.md."""
-import ctypes, io, queue, struct, sys, threading, time, types, uuid
+"""Minimal QLink client for the be quiet! Dark Mount (Windows + Linux hidraw, stdlib + Pillow). Protocol: PROTOCOL.md."""
+import ctypes, glob, io, os, queue, struct, sys, threading, time, types, uuid
 
 HID_GUID = uuid.UUID('4d1e55b2-f16f-11cf-88cb-001111000030')
 DISPLAY_KEYS = range(0x6d, 0x75)  # Key_NumpadImage0..7
@@ -16,46 +16,65 @@ def crc16(data):  # CRC-16/MODBUS
     return c
 
 
-def find_path():
-    cm = ctypes.WinDLL('cfgmgr32')
-    guid = (ctypes.c_byte * 16).from_buffer_copy(HID_GUID.bytes_le)
-    n = ctypes.c_ulong()
-    cm.CM_Get_Device_Interface_List_SizeW(ctypes.byref(n), guid, None, 0)
-    buf = ctypes.create_unicode_buffer(n.value)
-    if cm.CM_Get_Device_Interface_ListW(guid, None, buf, n.value, 0):
-        raise OSError('CM_Get_Device_Interface_ListW failed')
-    for p in buf[:n.value].split('\0'):
-        if 'vid_373f&pid_0001&mi_02' in p.lower():
-            return p
-    raise OSError('Dark Mount (MI_02) not found')
+if sys.platform == 'win32':
+    def find_path():
+        cm = ctypes.WinDLL('cfgmgr32')
+        guid = (ctypes.c_byte * 16).from_buffer_copy(HID_GUID.bytes_le)
+        n = ctypes.c_ulong()
+        cm.CM_Get_Device_Interface_List_SizeW(ctypes.byref(n), guid, None, 0)
+        buf = ctypes.create_unicode_buffer(n.value)
+        if cm.CM_Get_Device_Interface_ListW(guid, None, buf, n.value, 0):
+            raise OSError('CM_Get_Device_Interface_ListW failed')
+        for p in buf[:n.value].split('\0'):
+            if 'vid_373f&pid_0001&mi_02' in p.lower():
+                return p
+        raise OSError('Dark Mount (MI_02) not found')
 
+    K = ctypes.WinDLL('kernel32', use_last_error=True)
+    K.CreateFileW.restype = ctypes.c_void_p
+    _io = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong), ctypes.c_void_p]
+    K.ReadFile.argtypes = K.WriteFile.argtypes = _io
+    K.CloseHandle.argtypes = [ctypes.c_void_p]
+    close_hid = K.CloseHandle
 
-K = ctypes.WinDLL('kernel32', use_last_error=True)
-K.CreateFileW.restype = ctypes.c_void_p
-_io = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong), ctypes.c_void_p]
-K.ReadFile.argtypes = K.WriteFile.argtypes = _io
-K.CloseHandle.argtypes = [ctypes.c_void_p]
+    def open_hid(path):
+        # os.open lacks FILE_SHARE_WRITE (access denied) and msvcrt rejects HID handles -> raw Win32
+        h = K.CreateFileW(path, 0xC0000000, 3, None, 3, 0, None)  # GENERIC_RW, SHARE_RW, OPEN_EXISTING
+        if h in (None, ctypes.c_void_p(-1).value):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return h
 
+    def hid_read(h):
+        buf, n = ctypes.create_string_buffer(65), ctypes.c_ulong()
+        if not K.ReadFile(h, buf, 65, ctypes.byref(n), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return buf.raw[:n.value]
 
-def open_hid(path):
-    # os.open lacks FILE_SHARE_WRITE (access denied) and msvcrt rejects HID handles -> raw Win32
-    h = K.CreateFileW(path, 0xC0000000, 3, None, 3, 0, None)  # GENERIC_RW, SHARE_RW, OPEN_EXISTING
-    if h in (None, ctypes.c_void_p(-1).value):
-        raise ctypes.WinError(ctypes.get_last_error())
-    return h
+    def hid_write(h, data):
+        n = ctypes.c_ulong()
+        if not K.WriteFile(h, data, len(data), ctypes.byref(n), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+else:  # Linux hidraw
+    def find_path():
+        for d in sorted(glob.glob('/sys/class/hidraw/*/device')):
+            try:  # device/.. is the USB interface; MI_02 = bInterfaceNumber 02
+                if ':0000373F:00000001' in open(d + '/uevent').read().upper() \
+                        and open(d + '/../bInterfaceNumber').read().strip() == '02':
+                    return '/dev/' + d.split('/')[4]
+            except OSError:
+                continue
+        raise OSError('Dark Mount (MI_02) not found')
 
+    def open_hid(path):
+        return os.open(path, os.O_RDWR)
 
-def hid_read(h):
-    buf, n = ctypes.create_string_buffer(65), ctypes.c_ulong()
-    if not K.ReadFile(h, buf, 65, ctypes.byref(n), None):
-        raise ctypes.WinError(ctypes.get_last_error())
-    return buf.raw[:n.value]
+    def hid_read(h):  # hidraw leaves out report id 0 on input, Windows includes it -> same shape for the caller
+        return b'\0' + os.read(h, 64)
 
+    def hid_write(h, data):  # both expect report id 0 as first byte on output
+        os.write(h, data)
 
-def hid_write(h, data):
-    n = ctypes.c_ulong()
-    if not K.WriteFile(h, data, len(data), ctypes.byref(n), None):
-        raise ctypes.WinError(ctypes.get_last_error())
+    close_hid = os.close
 
 
 class QLinkError(Exception):
@@ -91,8 +110,8 @@ class QLink:
 
     def close(self):
         # ponytail: a reader blocked in ReadFile only ends with the next report; harmless leftover thread
-        K.CloseHandle(self.w)
-        K.CloseHandle(self.r)
+        close_hid(self.w)
+        close_hid(self.r)
 
     def call(self, feat, cmd, params=b'', timeout=2.0):
         self.rid = self.rid % 255 + 1

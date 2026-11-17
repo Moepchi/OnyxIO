@@ -6,15 +6,18 @@ Skipped: encrypted Marketplace plugins (decrypting them would bypass Elgato's DR
 Self-check: python sdhost.py test
 """
 import base64, functools, hashlib, io, json, logging, os, platform, shutil, socket, subprocess, threading, webbrowser
-import ctypes, winreg
+import sys
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 from PIL import Image
 from lang import HOME, tr
 
 OWN = HOME / 'plugins'  # own installs (open-source builds from GitHub) win over Elgato's copy
-PLUGINS = Path(os.environ.get('APPDATA', '')) / 'Elgato/StreamDeck/Plugins'
-PROFILES = Path(os.environ.get('LOCALAPPDATA', '')) / 'darkmount/edge'  # one browser profile per HTML plugin
+WIN = sys.platform == 'win32'
+NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)  # no console flash on Windows, nothing elsewhere
+CACHE = Path(os.environ['LOCALAPPDATA'] if WIN else os.environ.get('XDG_CACHE_HOME') or Path.home() / '.cache') / 'darkmount'
+PLUGINS = Path(os.environ.get('APPDATA', '')) / 'Elgato/StreamDeck/Plugins' if WIN else OWN  # no Elgato app on Linux
+PROFILES = CACHE / 'edge'  # one browser profile per HTML plugin
 DEVICE = 'DARKMOUNT'
 WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 TYPES = {'.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.js': 'text/javascript',
@@ -46,7 +49,10 @@ def decode(s, base):  # setImage payload: data URL or a file inside the plugin -
         return None
 
 
-def edge():
+def edge():  # Edge on Windows, any Chromium on Linux (both understand --app / --headless)
+    if not WIN:
+        return next(filter(None, map(shutil.which, ('chromium', 'chromium-browser', 'google-chrome', 'microsoft-edge'))), None)
+    import winreg
     for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
         try:
             return winreg.QueryValue(root, r'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe')
@@ -69,18 +75,18 @@ def scan():
         except (OSError, ValueError):
             skipped.append((d.name, 'manifest.json unreadable'))
             continue
-        code = m.get('CodePathWin') or m.get('CodePath') or ''
+        code = (m.get('CodePathWin') if WIN else None) or m.get('CodePath') or m.get('CodePathWin') or ''
         exe = d / code
         if not exe.is_file() and Path(f'{exe}.exe').is_file():
             exe = Path(f'{exe}.exe')
         kind = exe.suffix.lower()
         html = kind in ('.html', '.htm')
-        cmd = ([str(exe)] if kind == '.exe' else [node, str(exe)] if kind in ('.js', '.mjs', '.cjs') and node else
+        cmd = ([str(exe)] if kind == '.exe' and WIN else None if kind == '.exe' else [node, str(exe)] if kind in ('.js', '.mjs', '.cjs') and node else
                [browser, '--headless=new', '--no-first-run', '--disable-gpu', '--disable-extensions',  # ~145 MB, not 225
                 '--disable-component-extensions-with-background-pages', f'--user-data-dir={PROFILES / d.name}']
                if html and browser else None)
         if not code or not exe.is_file() or not cmd:
-            why = 'Edge missing' if html else 'Node.js missing' if kind.endswith('js') else 'no program'
+            why = 'Edge missing' if html else 'Windows only' if kind == '.exe' else 'Node.js missing' if kind.endswith('js') else 'no program'
             skipped.append((d.name, why))
             continue
         actions = {}
@@ -231,7 +237,7 @@ class Host:
                  '-info', json.dumps(self.info(p))])
         try:
             p['proc'] = subprocess.Popen(p['cmd'] + args, cwd=p['dir'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                         stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+                                         stderr=subprocess.DEVNULL, creationflags=NOWIN)
             log.info('started %s', p['uuid'])
         except OSError as e:
             log.warning('cannot start %s: %s', p['uuid'], e)

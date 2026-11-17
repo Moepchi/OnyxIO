@@ -67,14 +67,16 @@ work like a Stream Deck, plus lighting and macros. One Python program, no instal
 - Closing the window hides it in the **system tray**; the keys keep working. Click the tray icon to open it again,
   right-click → *Quit* (or the **Quit** button) ends the program. Windows 11 may put new tray icons in the ^ overflow.
 - Privacy: key presses are evaluated only for the display keys, the Reactive preview (memory only) and while *you*
-  record a macro or assign a key. Nothing is logged.
+  record a macro or assign a key. Nothing is logged. Deck makes no network requests of its own; only if you tick
+  *Check for updates* it asks GitHub for the latest version number at start.
 
 ![Lighting tab](docs/lighting.png)
 
 ## Download (no Python needed)
 Get **`DarkMountDeck.exe`** from the [latest release](https://github.com/Moepchi/dark-mount-deck/releases/latest),
 put it in a folder of its own and start it. `deck.json`, `deck.log` and the `plugins` folder are created next to it.
-Windows SmartScreen may warn because the file is not signed: *More info → Run anyway*.
+Windows SmartScreen may warn because the file is not signed: *More info → Run anyway*. The exe is built by GitHub
+Actions straight from the tagged source – see the **[Code signing policy](https://github.com/Moepchi/dark-mount-deck/wiki/Code-signing-policy)**.
 
 ## Requirements (running from source)
 - Windows 10 / 11, be quiet! Dark Mount
@@ -91,7 +93,8 @@ pythonw deck.py
 - **Close IO Center first** – the keyboard accepts only one program at a time.
 - Settings are saved in `deck.json` next to the program; plugin output goes to `deck.log`.
 - Self-tests: `python deck.py test`, `python darkmount.py test` and `python sdhost.py test` (no keyboard needed).
-- Build the .exe yourself: `pip install pyinstaller` then `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico --add-data "icon.ico;." --collect-all winrt deck.py` (`--collect-all winrt` bundles the Media Dock's now-playing support)
+- Build the .exe yourself: `pip install pyinstaller` then `pyinstaller DarkMountDeck.spec` (the same as the release
+  build; it bundles the Media Dock's now-playing support and sets the version from `deck.py`).
 
 ## Files
 | File | What |
@@ -168,12 +171,15 @@ keine Telemetrie.
   öffnet es wieder, Rechtsklick → *Beenden* (oder der Knopf **Beenden**) beendet das Programm. Windows 11 legt neue
   Tray-Icons eventuell unter ^ ab.
 - Datenschutz: Tastendrücke werden nur für die Displaytasten, die Reaktiv-Vorschau (nur im Speicher) und während
-  *du* ein Makro aufnimmst oder eine Taste zuweist ausgewertet. Nichts wird protokolliert.
+  *du* ein Makro aufnimmst oder eine Taste zuweist ausgewertet. Nichts wird protokolliert. Deck stellt von sich aus
+  keine Netzwerkanfragen; nur wenn du *Nach Updates suchen* anhakst, fragt es beim Start GitHub nach der neuesten
+  Versionsnummer.
 
 ## Download (ohne Python)
 **`DarkMountDeck.exe`** aus dem [neuesten Release](https://github.com/Moepchi/dark-mount-deck/releases/latest) laden,
 in einen eigenen Ordner legen und starten. `deck.json`, `deck.log` und der Ordner `plugins` entstehen daneben.
-Windows SmartScreen kann warnen, weil die Datei nicht signiert ist: *Weitere Informationen → Trotzdem ausführen*.
+Windows SmartScreen kann warnen, weil die Datei nicht signiert ist: *Weitere Informationen → Trotzdem ausführen*. Die
+exe baut GitHub Actions direkt aus dem getaggten Quellcode – siehe die **[Code signing policy](https://github.com/Moepchi/dark-mount-deck/wiki/Code-signing-policy#richtlinie-zur-code-signatur-deutsch)**.
 
 ## Voraussetzungen (aus dem Quellcode)
 - Windows 10 / 11, be quiet! Dark Mount
@@ -190,7 +196,8 @@ pythonw deck.py
 - **Vorher IO Center schließen** – die Tastatur nimmt nur ein Programm gleichzeitig an.
 - Einstellungen landen in `deck.json` neben dem Programm, Plugin-Ausgaben in `deck.log`.
 - Selbsttests: `python deck.py test`, `python darkmount.py test` und `python sdhost.py test` (ohne Tastatur).
-- .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller --onefile --windowed --name DarkMountDeck --icon icon.ico --add-data "icon.ico;." --collect-all winrt deck.py` (`--collect-all winrt` bundles the Media Dock's now-playing support)
+- .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller DarkMountDeck.spec` (wie der Release-Build;
+  bündelt die Now-Playing-Unterstützung fürs Media Dock und setzt die Version aus `deck.py`).
 
 ## Lizenz
 MIT – siehe [LICENSE](LICENSE). Stream-Deck-Plugins behalten ihre eigenen Lizenzen. „be quiet!“, „Dark Mount“,

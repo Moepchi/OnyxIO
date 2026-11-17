@@ -3,7 +3,7 @@
 Start: pythonw deck.py [--min]   (IO Center must not run: the keyboard allows only one session)
 Config: deck.json next to this file, edited in the window. Plugin log: deck.log. Self-check: python deck.py test
 """
-import ast, ctypes, ctypes.wintypes as W, io, json, winreg, logging, math, os, queue, random, struct, subprocess, sys, threading, time, uuid, webbrowser, zipfile, zlib
+import ast, ctypes, ctypes.wintypes as W, io, json, logging, math, os, queue, random, shlex, struct, subprocess, sys, threading, time, uuid, webbrowser, zipfile, zlib
 import tkinter as tk
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -13,6 +13,10 @@ import darkmount as dm
 import lang, sdhost
 from lang import LANGS, tr
 
+VERSION = '1.4.0'  # raise together with the release tag, the update hint compares against it
+REPO = 'Moepchi/dark-mount-deck'
+WIN = sys.platform == 'win32'  # everything else is treated as Linux
+FONT = 'arialbd.ttf' if WIN else 'DejaVuSans-Bold.ttf'  # Pillow finds both by name in the system font folders
 CFG = lang.HOME / 'deck.json'
 ICON = Path(getattr(sys, '_MEIPASS', lang.HOME)) / 'icon.ico'  # bundled into the .exe
 COLS = 4  # 2 rows x 4 keys, like on the module
@@ -92,26 +96,80 @@ def _row(y, x, spec):
     return out
 
 
-# ISO-DE layout of the Dark Mount, numpad module on the right (NumpadModule.GetState 01 02); units = key widths
-KEYS = [k for y, x, spec in (
-    (0, 0, 'Escape|Esc _1 F1|F1 F2|F2 F3|F3 F4|F4 _.5 F5|F5 F6|F6 F7|F7 F8|F8 _.5 F9|F9 F10|F10 F11|F11 F12|F12 '
-           '_.25 PrintScreen|Druck ScrollLock|Rollen PauseBreak|Pause'),
-    (1.25, 0, 'GraveAccentAndTilde|^ 1|1 2|2 3|3 4|4 5|5 6|6 7|7 8|8 9|9 0|0 MinusAndUnderscore|ß EqualsAndPlus|´ '
-              'Backspace|⟵|2 _.25 Insert|Einfg Home|Pos1 PageUp|Bild↑'),
-    (2.25, 0, 'Tab|Tab|1.5 Q|Q W|W E|E R|R T|T Y|Z U|U I|I O|O P|P BracketLeft|Ü BracketRight|+ Enter|↵|1.5 '
-              '_.25 Delete|Entf End|Ende PageDown|Bild↓'),
-    (3.25, 0, 'CapsLock|Caps|1.75 A|A S|S D|D F|F G|G H|H J|J K|K L|L SemicolonAndColon|Ö ApostropheAndDoubleQuote|Ä '
-              'NonUsTilde|# Enter||1.25'),
-    (4.25, 0, 'LeftShift|⇧|1.25 NonUsBackslash|< Z|Y X|X C|C V|V B|B N|N M|M CommaAndLessThan|, PeriodAndBiggerThan|. '
-              'SlashAndQuestionMark|- RightShift|⇧|2.75 _1.25 UpArrow|↑'),
-    (5.25, 0, 'LeftCtrl|Strg|1.25 LeftGui|Win|1.25 LeftAlt|Alt|1.25 Space||6.25 RightAlt|AltGr|1.25 RightGui|Win|1.25 '
-              'Fn|Fn|1.25 RightCtrl|Strg|1.25 _.25 LeftArrow|← DownArrow|↓ RightArrow|→'),
+# Dark Mount layouts: same PCB and LED map, only the keycaps/legends differ (ISO = 105 keys, ANSI = 104). The key
+# table below is the only thing that varies; FRAMES, the LED counts and HID are the shared PCB. The keymap is
+# user-calibrated, so it absorbs the physical ISO/ANSI difference (an unused LED just stays at the general fill).
+# ponytail: assumes the US/UK boards share the ISO PCB's 192-LED map; a real capture would confirm it. The Light
+# Mount (TKL, no numpad, ARGB bars) needs its own table + LED map from a capture before it can be added here.
+_NUMPAD = (
     (1.25, 20.25, 'NumLock|Num NumpadSlash|/ NumpadAsterisk|* NumpadMinus|-'),
     (2.25, 20.25, 'Numpad7|7 Numpad8|8 Numpad9|9 NumpadPlus|+'),
     (3.25, 20.25, 'Numpad4|4 Numpad5|5 Numpad6|6 NumpadPlus|'),
     (4.25, 20.25, 'Numpad1|1 Numpad2|2 Numpad3|3 NumpadEnter|↵'),
-    (5.25, 20.25, 'Numpad0|0|2 NumpadPeriodAndDelete|, NumpadEnter|')) for k in _row(y, x, spec)]
-KEYNAMES = list(dict.fromkeys(k[0] for k in KEYS))
+    (5.25, 20.25, 'Numpad0|0|2 NumpadPeriodAndDelete|, NumpadEnter|'))
+LAYOUTS = {
+    'DE': (  # ISO, German legends
+        (0, 0, 'Escape|Esc _1 F1|F1 F2|F2 F3|F3 F4|F4 _.5 F5|F5 F6|F6 F7|F7 F8|F8 _.5 F9|F9 F10|F10 F11|F11 F12|F12 '
+               '_.25 PrintScreen|Druck ScrollLock|Rollen PauseBreak|Pause'),
+        (1.25, 0, 'GraveAccentAndTilde|^ 1|1 2|2 3|3 4|4 5|5 6|6 7|7 8|8 9|9 0|0 MinusAndUnderscore|ß EqualsAndPlus|´ '
+                  'Backspace|⟵|2 _.25 Insert|Einfg Home|Pos1 PageUp|Bild↑'),
+        (2.25, 0, 'Tab|Tab|1.5 Q|Q W|W E|E R|R T|T Y|Z U|U I|I O|O P|P BracketLeft|Ü BracketRight|+ Enter|↵|1.5 '
+                  '_.25 Delete|Entf End|Ende PageDown|Bild↓'),
+        (3.25, 0, 'CapsLock|Caps|1.75 A|A S|S D|D F|F G|G H|H J|J K|K L|L SemicolonAndColon|Ö ApostropheAndDoubleQuote|Ä '
+                  'NonUsTilde|# Enter||1.25'),
+        (4.25, 0, 'LeftShift|⇧|1.25 NonUsBackslash|< Z|Y X|X C|C V|V B|B N|N M|M CommaAndLessThan|, PeriodAndBiggerThan|. '
+                  'SlashAndQuestionMark|- RightShift|⇧|2.75 _1.25 UpArrow|↑'),
+        (5.25, 0, 'LeftCtrl|Strg|1.25 LeftGui|Win|1.25 LeftAlt|Alt|1.25 Space||6.25 RightAlt|AltGr|1.25 RightGui|Win|1.25 '
+                  'Fn|Fn|1.25 RightCtrl|Strg|1.25 _.25 LeftArrow|← DownArrow|↓ RightArrow|→'),
+        *_NUMPAD),
+    'US': (  # ANSI, US legends (wide Enter, wide LeftShift, no ISO extra keys, a Backslash on row 2)
+        (0, 0, 'Escape|Esc _1 F1|F1 F2|F2 F3|F3 F4|F4 _.5 F5|F5 F6|F6 F7|F7 F8|F8 _.5 F9|F9 F10|F10 F11|F11 F12|F12 '
+               '_.25 PrintScreen|PrtSc ScrollLock|ScrLk PauseBreak|Pause'),
+        (1.25, 0, 'GraveAccentAndTilde|` 1|1 2|2 3|3 4|4 5|5 6|6 7|7 8|8 9|9 0|0 MinusAndUnderscore|- EqualsAndPlus|= '
+                  'Backspace|⟵|2 _.25 Insert|Ins Home|Home PageUp|PgUp'),
+        (2.25, 0, 'Tab|Tab|1.5 Q|Q W|W E|E R|R T|T Y|Y U|U I|I O|O P|P BracketLeft|[ BracketRight|] Backslash|\\|1.5 '
+                  '_.25 Delete|Del End|End PageDown|PgDn'),
+        (3.25, 0, 'CapsLock|Caps|1.75 A|A S|S D|D F|F G|G H|H J|J K|K L|L SemicolonAndColon|; ApostropheAndDoubleQuote|\' '
+                  'Enter|↵|2.25'),
+        (4.25, 0, 'LeftShift|⇧|2.25 Z|Z X|X C|C V|V B|B N|N M|M CommaAndLessThan|, PeriodAndBiggerThan|. '
+                  'SlashAndQuestionMark|/ RightShift|⇧|2.75 _1.25 UpArrow|↑'),
+        (5.25, 0, 'LeftCtrl|Ctrl|1.25 LeftGui|Win|1.25 LeftAlt|Alt|1.25 Space||6.25 RightAlt|Alt|1.25 RightGui|Win|1.25 '
+                  'Fn|Fn|1.25 RightCtrl|Ctrl|1.25 _.25 LeftArrow|← DownArrow|↓ RightArrow|→'),
+        *_NUMPAD),
+    'UK': (  # ISO, UK/English legends (ISO Enter + # and \ keys like DE, but English letters)
+        (0, 0, 'Escape|Esc _1 F1|F1 F2|F2 F3|F3 F4|F4 _.5 F5|F5 F6|F6 F7|F7 F8|F8 _.5 F9|F9 F10|F10 F11|F11 F12|F12 '
+               '_.25 PrintScreen|PrtSc ScrollLock|ScrLk PauseBreak|Pause'),
+        (1.25, 0, 'GraveAccentAndTilde|` 1|1 2|2 3|3 4|4 5|5 6|6 7|7 8|8 9|9 0|0 MinusAndUnderscore|- EqualsAndPlus|= '
+                  'Backspace|⟵|2 _.25 Insert|Ins Home|Home PageUp|PgUp'),
+        (2.25, 0, 'Tab|Tab|1.5 Q|Q W|W E|E R|R T|T Y|Y U|U I|I O|O P|P BracketLeft|[ BracketRight|] Enter|↵|1.5 '
+                  '_.25 Delete|Del End|End PageDown|PgDn'),
+        (3.25, 0, 'CapsLock|Caps|1.75 A|A S|S D|D F|F G|G H|H J|J K|K L|L SemicolonAndColon|; ApostropheAndDoubleQuote|\' '
+                  'NonUsTilde|# Enter||1.25'),
+        (4.25, 0, 'LeftShift|⇧|1.25 NonUsBackslash|\\ Z|Z X|X C|C V|V B|B N|N M|M CommaAndLessThan|, PeriodAndBiggerThan|. '
+                  'SlashAndQuestionMark|/ RightShift|⇧|2.75 _1.25 UpArrow|↑'),
+        (5.25, 0, 'LeftCtrl|Ctrl|1.25 LeftGui|Win|1.25 LeftAlt|Alt|1.25 Space||6.25 RightAlt|AltGr|1.25 RightGui|Win|1.25 '
+                  'Fn|Fn|1.25 RightCtrl|Ctrl|1.25 _.25 LeftArrow|← DownArrow|↓ RightArrow|→'),
+        *_NUMPAD)}
+LAYOUTNAMES = {'DE': 'Deutsch (ISO)', 'US': 'US (ANSI)', 'UK': 'UK (ISO)'}
+
+
+def build_layout(name):  # (re)build the board globals for the chosen layout; called at start and reused by the tests
+    global KEYS, KEYNAMES, KEYPOS
+    KEYS = [k for y, x, spec in LAYOUTS[name] for k in _row(y, x, spec)]
+    KEYNAMES = list(dict.fromkeys(k[0] for k in KEYS))
+    KEYPOS = {n: (x + w / 2, y + .5) for n, _, x, y, w in reversed(KEYS)}  # reversed: a key's first part wins
+
+
+def _pick_layout():  # deck.json "layout" picks the board; tests and anything unknown use the full ISO-DE board
+    try:
+        v = json.loads(CFG.read_text('utf-8')).get('layout')
+    except (OSError, ValueError):
+        v = None
+    return v if v in LAYOUTS else 'DE'
+
+
+LAYOUT = 'DE' if sys.argv[1:2] == ['test'] else _pick_layout()
+build_layout(LAYOUT)
 # Edge LEDs: the ids IO Center streams for its edge layer (keyboard top/bottom/left, numpad top/bottom/right).
 # 128-138 (right keyboard edge under the numpad) and 170 never get a color from it.
 FRAMES = {'Frame_Keyboard': (*range(106, 128), *range(139, 170)), 'Frame_Numpad': tuple(range(171, 192))}
@@ -213,9 +271,6 @@ def step_text(typ, code, ms):
         n = HIDNAME.get(code)
         what = f'{"↓" if typ == 2 else "↑" if typ == 3 else "?"}  {keylabel(n) if n else hex(code)}'
     return f'{what}   {ms} ms'
-
-
-KEYPOS = {n: (x + w / 2, y + .5) for n, _, x, y, w in reversed(KEYS)}  # reversed: a key's first part wins
 
 
 def _mix(a, b, f):
@@ -404,21 +459,52 @@ def parse_hotkey(s):
     return vks
 
 
-def press(vks):
-    ext = [1 if v in EXTENDED else 0 for v in vks]
-    send([(v, 0, e) for v, e in zip(vks, ext)] + [(v, 0, e | 2) for v, e in reversed(list(zip(vks, ext)))])
+if WIN:
+    def press(vks):
+        ext = [1 if v in EXTENDED else 0 for v in vks]
+        send([(v, 0, e) for v, e in zip(vks, ext)] + [(v, 0, e | 2) for v, e in reversed(list(zip(vks, ext)))])
 
+    def type_text(text):
+        raw = text.encode('utf-16-le')
+        units = [int.from_bytes(raw[i:i + 2], 'little') for i in range(0, len(raw), 2)]
+        send([e for u in units for e in ((0, u, 4), (0, u, 6))])
+else:
+    # Windows VK -> Linux evdev key code (input-event-codes.h). Letters/digits go by key position like on a US board.
+    EV = dict(zip(b'1234567890QWERTYUIOPASDFGHJKLZXCVBNM', [*range(2, 12), *range(16, 26), *range(30, 39), *range(44, 51)]))
+    EV.update({0x11: 29, 0x10: 42, 0x12: 56, 0x5B: 125, 0x0D: 28, 0x1B: 1, 0x09: 15, 0x20: 57, 0x08: 14, 0x2E: 111,
+               0x2D: 110, 0x24: 102, 0x23: 107, 0x21: 104, 0x22: 109, 0x25: 105, 0x26: 103, 0x27: 106, 0x28: 108,
+               0x2C: 99, 0xB3: 164, 0xB0: 163, 0xB1: 165, 0xB2: 166, 0xAD: 113, 0xAF: 115, 0xAE: 114,
+               **{0x6F + i: c for i, c in enumerate([*range(59, 69), 87, 88, *range(183, 195)], 1)}})
+    _uinput = []
 
-def type_text(text):
-    raw = text.encode('utf-16-le')
-    units = [int.from_bytes(raw[i:i + 2], 'little') for i in range(0, len(raw), 2)]
-    send([e for u in units for e in ((0, u, 4), (0, u, 6))])
+    def press(vks):
+        """A virtual keyboard via /dev/uinput (X11 and Wayland alike; needs write access, see the udev rule)."""
+        import fcntl
+        if not _uinput:
+            fd = os.open('/dev/uinput', os.O_WRONLY | os.O_NONBLOCK)
+            fcntl.ioctl(fd, 0x40045564, 1)  # UI_SET_EVBIT EV_KEY
+            for c in set(EV.values()):
+                fcntl.ioctl(fd, 0x40045565, c)  # UI_SET_KEYBIT
+            fcntl.ioctl(fd, 0x405c5503, struct.pack('<4H80sI', 6, 0, 0, 1, b'Dark Mount Deck', 0))  # UI_DEV_SETUP, BUS_VIRTUAL
+            fcntl.ioctl(fd, 0x5501)  # UI_DEV_CREATE
+            time.sleep(.3)  # the desktop needs a moment to pick up the new device, else the first keys get lost
+            _uinput.append(fd)
+        ev = lambda t, c, v: struct.pack('llHHi', 0, 0, t, c, v)  # struct input_event; EV_SYN/SYN_REPORT after each
+        for code, v in [(EV[k], 1) for k in vks] + [(EV[k], 0) for k in reversed(vks)]:
+            os.write(_uinput[0], ev(1, code, v) + ev(0, 0, 0))
+
+    def type_text(text):  # uinput only knows keys, not characters: the desktop's own typing tool does Unicode
+        tool = ['wtype', '--'] if os.environ.get('WAYLAND_DISPLAY') else ['xdotool', 'type', '--']
+        try:
+            subprocess.run(tool + [text], timeout=30)
+        except OSError:
+            log.warning('type text: %s missing', tool[0])
 
 
 def run_action(k):
     a, v = k.get('action', 'none'), k.get('value', '')
     if a == 'open':
-        os.startfile(os.path.expandvars(v))
+        os.startfile(os.path.expandvars(v)) if WIN else subprocess.Popen(['xdg-open', os.path.expanduser(os.path.expandvars(v))])
     elif a == 'url':
         webbrowser.open(v)
     elif a == 'hotkey':
@@ -428,7 +514,7 @@ def run_action(k):
     elif a == 'media':
         press([MEDIA[v]])
     elif a == 'cmd':
-        subprocess.Popen(v, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.Popen(v, shell=True, creationflags=sdhost.NOWIN)
 
 
 def render(k):
@@ -457,7 +543,7 @@ def render(k):
     if title:
         d = ImageDraw.Draw(im)
         for size in range(40, 7, -2):
-            font = ImageFont.truetype('arialbd.ttf', size)
+            font = ImageFont.truetype(FONT, size)
             x0, y0, x1, y1 = d.multiline_textbbox((0, 0), title, font=font, align='center', stroke_width=stroke)
             if x1 - x0 <= 112 and y1 - y0 <= 116 - top:
                 break
@@ -484,6 +570,7 @@ def load():
     cfg.pop('keys', None)
     cfg['pages'] = [blank_page(p) for p in pages]
     cfg['page'] = max(0, min(cfg.get('page', 0), len(cfg['pages']) - 1))
+    cfg.setdefault('layout', LAYOUT)  # which board the keyboard picture / key list use
     cfg.setdefault('light', dict(LIGHT))
     cfg['dock'] = {**DOCK, **cfg.get('dock', {})}
     cfg.pop('keycolors', None)  # replaced by layers
@@ -493,11 +580,39 @@ def load():
     return cfg
 
 
+def _ver(tag):
+    return tuple(int(n) for n in tag.lstrip('v').split('.'))
+
+
+def newer_release():
+    """Latest GitHub release tag if newer than VERSION, else None. Only a hint with a link: nothing is downloaded."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f'https://api.github.com/repos/{REPO}/releases/latest', timeout=10) as r:
+            tag = json.load(r)['tag_name']
+        return tag if _ver(tag) > _ver(VERSION) else None
+    except (OSError, ValueError, KeyError, TypeError):  # offline, rate limit, odd tag: stay quiet
+        return None
+
+
 RUN = r'Software\Microsoft\Windows\CurrentVersion\Run'
 
 
 def autostart(on=None, name='DarkMountDeck'):
-    """Windows autostart (per user, starts in the tray). None: report and repoint a moved program; True/False: set."""
+    """Autostart at login (per user, starts in the tray). None: report and repoint a moved program; True/False: set.
+    Windows: registry Run key. Linux: an XDG autostart .desktop file."""
+    if not WIN:
+        f = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'autostart' / f'{name}.desktop'
+        if on is None:
+            on = f.is_file()
+        if on:
+            exe = [sys.executable] + ([] if lang.FROZEN else [os.path.abspath(__file__)])
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(f'[Desktop Entry]\nType=Application\nName=Dark Mount Deck\nExec={shlex.join(exe)} --min\n', 'utf-8')
+        else:
+            f.unlink(missing_ok=True)
+        return on
+    import winreg
     exe = [sys.executable] if lang.FROZEN else [str(Path(sys.executable).with_name('pythonw.exe')), os.path.abspath(__file__)]
     cmd = subprocess.list2cmdline(exe) + ' --min'
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN) as k:
@@ -718,6 +833,39 @@ def watch_media(dev, enabled):
         log.exception('now playing')
 
 
+def watch_mpris(dev, enabled):
+    """Linux twin of watch_media: the MPRIS "now playing" of any player, read with playerctl once a second."""
+    import shutil, urllib.request
+    if not shutil.which('playerctl'):
+        return log.info('now playing: playerctl missing')
+    fmt = '\t'.join('{{%s}}' % f for f in ('status', 'position', 'mpris:length', 'artist', 'album', 'title', 'mpris:artUrl'))
+    last, at = None, 0
+    while True:
+        try:
+            out = enabled() and subprocess.run(['playerctl', 'metadata', '--format', fmt], capture_output=True,
+                                               text=True, timeout=3).stdout.rstrip('\n').split('\t')
+            info, url = (0, 0, 0, '', '', ''), ''
+            if out and len(out) == 7:
+                st, pos, dur, *tags, url = out
+                info = ({'Playing': 1, 'Paused': 2}.get(st, 0), int(pos or 0) // 10**6, int(dur or 0) // 10**6, *tags)
+            now = time.monotonic()
+            guess = last[0][1] + (now - at if last[0][0] == 1 else 0) if last else 0
+            if not last or info[:1] + info[2:] != last[0][:1] + last[0][2:] or abs(info[1] - guess) > 3:
+                cover = last[1] if last and info[3:] == last[0][3:] else None
+                if cover is None and url.startswith(('file://', 'http://', 'https://')):
+                    with urllib.request.urlopen(url, timeout=5) as r:  # local file or the player's cover link
+                        cover = r.read()
+                last, at = (info, cover), now
+                dev.dock_media = last
+        except Exception as e:  # player closed mid-query, odd values, cover offline: try again next second
+            log.info('now playing: %r', e)
+        time.sleep(1)
+
+
+if not WIN:
+    watch_media = watch_mpris
+
+
 def dock_conf(d):  # -> the dock's 9 config bytes [R G B][clock 1=24h][saver 1=clock 2=image][after s u16][off s u16]
     return bytes.fromhex(d['color'][1:]) + struct.pack('<BBHH', d['h24'], d['saver'], d['after'], d['off'])
 
@@ -757,6 +905,8 @@ def dark(root):
                  '*TCombobox*Listbox.selectBackground': SEL, '*TCombobox*Listbox.selectForeground': 'white'}.items():
         root.option_add(k, v)
     root.configure(bg=BG)
+    if not WIN:  # the title bar belongs to the desktop's own theme there
+        return
     root.update_idletasks()  # the title bar belongs to the real window, which exists only now
     hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
     ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)  # IMMERSIVE_DARK_MODE
@@ -891,10 +1041,11 @@ class App:
         self.bg, self.icon, self.val, self.rot, self.turn = '#202020', '', tk.StringVar(), tk.IntVar(), tk.IntVar()
         root.title('Dark Mount Deck')
         try:
-            root.iconbitmap(default=ICON)
-        except tk.TclError:
+            root.iconbitmap(default=ICON) if WIN else root.iconphoto(True, ImageTk.PhotoImage(Image.open(ICON)))
+        except (tk.TclError, OSError):
             pass
-        root.protocol('WM_DELETE_WINDOW', root.withdraw)  # keeps running in the tray like the Stream Deck app
+        # keeps running in the tray like the Stream Deck app; Linux: not every desktop shows a tray, so minimize instead
+        root.protocol('WM_DELETE_WINDOW', root.withdraw if WIN else root.iconify)
         self.tray = None
         nb = ttk.Notebook(root)
         nb.grid(row=0, column=0, columnspan=2, sticky='nsew', padx=10, pady=(10, 0))
@@ -984,12 +1135,20 @@ class App:
         self.status.grid(row=1, column=0, sticky='w', pady=10)
         f = ttk.Frame(root)
         f.grid(row=1, column=1, sticky='e', padx=10, pady=10)
+        lay = ttk.Combobox(f, state='readonly', values=list(LAYOUTNAMES.values()), width=12)
+        lay.set(LAYOUTNAMES[self.cfg['layout']])
+        lay.bind('<<ComboboxSelected>>', lambda e: self.set_layout(list(LAYOUTNAMES)[lay.current()]))
+        lay.pack(side='left', padx=(0, 8))
         box = ttk.Combobox(f, state='readonly', values=list(LANGS.values()), width=9)
         box.set(LANGS[lang.LANG])
         box.bind('<<ComboboxSelected>>', lambda e: self.set_lang(list(LANGS)[box.current()]))
         box.pack(side='left', padx=(0, 8))
+        self.bar, self.laybox, self.upd_shown = f, lay, False
+        self.upd = tk.BooleanVar(value=self.cfg.get('updates', False))  # opt-in: off, Deck sends nothing anywhere
+        ttk.Checkbutton(f, text=tr('Check for updates'), variable=self.upd, command=self.set_updates).pack(
+            side='left', padx=(0, 12), before=box)
         self.auto = tk.BooleanVar(value=autostart())
-        ttk.Checkbutton(f, text=tr('Start with Windows'), variable=self.auto,
+        ttk.Checkbutton(f, text=tr('Start with Windows') if WIN else tr('Start at login'), variable=self.auto,
                         command=lambda: autostart(self.auto.get())).pack(side='left', padx=(0, 12), before=box)
         ttk.Button(f, text=tr('Quit'), command=root.destroy).pack(side='left')
         self.dev = Device(lambda i: render(self.look(self.keys[i])), self.on_key)
@@ -1002,6 +1161,7 @@ class App:
             self.host.start()
             self.dev.start()
             threading.Thread(target=watch_media, args=(self.dev, lambda: self.cfg['dock']['media']), daemon=True).start()
+            self.check_update()
         for i in range(8):
             self.draw_tile(i)
         self.show_page()
@@ -1596,6 +1756,8 @@ class App:
     def watch_mouse(self, rec, got):
         """While this recording runs: poll the mouse buttons (the keyboard cannot see them). Buttons already held at
         the start (the click on Aufnehmen) count only once all are up."""
+        if not WIN:  # ponytail: no global mouse poll on Linux without evdev; macros record keys only there
+            return
         state, prev, armed = ctypes.windll.user32.GetAsyncKeyState, None, False
         while self.rec is rec:
             mask = sum(b for b, vk in MOUSE_VK.items() if state(vk) & 0x8000)
@@ -1779,9 +1941,30 @@ class App:
         self.root.lift()
         self.root.focus_force()
 
+    def set_updates(self):
+        self.cfg['updates'] = self.upd.get()
+        save(self.cfg)
+        self.check_update()
+
+    def check_update(self):  # the only request Deck makes on its own, and only once the box is ticked
+        def hint(tag):
+            if not self.upd_shown:
+                self.upd_shown = True
+                ttk.Button(self.bar, text=tr('Update {v} available', v=tag), command=lambda: webbrowser.open(
+                    f'https://github.com/{REPO}/releases/latest')).pack(side='left', padx=(0, 8), before=self.laybox)
+        if self.cfg.get('updates'):
+            threading.Thread(target=lambda: (t := newer_release()) and self.ui.put(lambda: hint(t)), daemon=True).start()
+
     def set_lang(self, code):  # texts are fixed at start: save, close, come back in the new language
         if code != lang.LANG and self.apply():
             self.cfg['lang'] = code
+            save(self.cfg)
+            self.restart = True
+            self.root.destroy()
+
+    def set_layout(self, code):  # the board table is fixed at start, like the language: save, close, come back
+        if code != self.cfg.get('layout') and self.apply():
+            self.cfg['layout'] = code
             save(self.cfg)
             self.restart = True
             self.root.destroy()
@@ -1890,9 +2073,10 @@ class App:
     # --- plugin settings: the plugin's own page in an Edge app window, embedded in the frame -----------------
     def pi_close(self):
         p, self.pi_proc, self.pi_ctx = self.pi_proc, None, None
-        if p and p.poll() is None:
-            subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True,
-                           creationflags=subprocess.CREATE_NO_WINDOW)
+        if p and p.poll() is None and WIN:
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True, creationflags=sdhost.NOWIN)
+        elif p and p.poll() is None:  # its own session (see pi_show): the whole browser process group goes
+            os.killpg(p.pid, 9)
 
     def pi_show(self):
         k = self.keys[self.sel]
@@ -1906,7 +2090,7 @@ class App:
                            tr('This action has no settings.') if ctx else
                            tr('Drag a plugin action onto a key – its settings appear here.'))
         if url and exe:
-            prof = Path(os.environ['LOCALAPPDATA']) / 'darkmount' / 'pi'
+            prof = sdhost.CACHE / 'pi'
             prefs = prof / 'Default' / 'Preferences'  # no "translate this page?" bubble (no flag for that)
             try:
                 pr = json.loads(prefs.read_text('utf-8'))
@@ -1916,9 +2100,11 @@ class App:
                 prefs.parent.mkdir(parents=True, exist_ok=True)
                 prefs.write_text(json.dumps({**pr, 'translate': {'enabled': False}}), 'utf-8')
             self.pi_ctx = ctx
-            self.pi_proc = subprocess.Popen([exe, f'--app={url}', f'--user-data-dir={prof}', *PI_FLAGS,
-                                             '--window-position=-32000,-32000', '--window-size=600,300'])
-            self.root.after(100, self.pi_embed, self.pi_proc, 0)
+            # ponytail: Linux shows the settings in their own window; embedding would need X11 reparenting
+            self.pi_proc = subprocess.Popen([exe, f'--app={url}', f'--user-data-dir={prof}', *PI_FLAGS, '--window-size=600,300',
+                                             *(['--window-position=-32000,-32000'] if WIN else [])], start_new_session=not WIN)
+            if WIN:
+                self.root.after(100, self.pi_embed, self.pi_proc, 0)
 
     def pi_embed(self, proc, n, hwnd=None):
         """Wait for Edge's window, make it a borderless child of the frame, then push its title bar and
@@ -2005,10 +2191,13 @@ class App:
 
 
 if __name__ == '__main__':
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)  # crisp window on scaled displays
+    if WIN:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # crisp window on scaled displays
     if sys.argv[1:2] == ['test']:
         import io, types
-        assert ctypes.sizeof(INPUT) == 40
+        assert ctypes.sizeof(INPUT) == 40 or not WIN
+        assert WIN or EV[0x5A] == 44 and EV[0x31] == 2 and EV[0x70] == 59 and EV[0x7C] == 183 and EV[0xB3] == 164
+        assert _ver('v1.10.0') > _ver('1.4.0') > _ver('v1.3.9') and _ver(f'v{VERSION}') == _ver(VERSION)
         assert parse_hotkey('Ctrl + Shift+M') == [0x11, 0x10, 0x4D] and parse_hotkey('win+f13') == [0x5B, 0x7C]
         assert render({'title': 'Hallo\nWelt', 'bg': '#ffffff'}).size == (120, 120)
         assert load()['pages'][0][7].get('title') is not None and 'light' in load()
@@ -2190,6 +2379,14 @@ if __name__ == '__main__':
         # macros: HID table, recording -> steps, the bytes sent to the keyboard
         assert set(KEYNAMES) - set(HID) == {'Key_Fn'} and HID['Key_Numpad4'] == 0x5C and HID['Key_A'] == 4
         assert HID['Key_NonUsBackslash'] == 0x64 and HID['Key_RightGui'] == 0xE7 and HID['Key_0'] == 0x27
+        for name, n in (('DE', 105), ('US', 104), ('UK', 105)):  # every board builds, maps to HID and fits the box
+            build_layout(name)
+            iso = name != 'US'
+            assert len(KEYNAMES) == n and set(KEYNAMES) <= set(KEYPOS) and set(KEYNAMES) - set(HID) == {'Key_Fn'}
+            assert ('Key_NonUsTilde' in KEYNAMES) == iso and ('Key_Backslash' in KEYNAMES) == (not iso)
+            assert 'Key_Numpad7' in KEYNAMES and all(0 <= x <= 24.25 and 0 <= y <= 6.25 for x, y in KEYPOS.values())
+            assert KEYPOS['Key_RightShift'][0] < 20.25 - M  # alpha block never reaches the numpad
+        build_layout('DE')  # the rest of the tests assume the ISO-DE board
         km = {'Key_A': 30, 'Key_Numpad4': 72}
         assert rec_events([(1.0, 72, True), (1.135, 72, False), (1.2, 999, True), (1.5, 30, True)], km) ==             [(2, 0x5C, 135), (3, 0x5C, 365), (2, 4, 0)]
         sent = []
@@ -2281,8 +2478,13 @@ if __name__ == '__main__':
         assert set(MEDIA) - {'Play/Pause'} <= set(lang.DE) and set(dm.DIRECTIONS) <= set(lang.DE)
         assert set(dm.EFFECTS) - {'Tornado', 'Matrix'} <= set(lang.DE)
         t = 'DarkMountDeckSelfTest'  # autostart on a throwaway entry
-        assert not autostart(None, t) and autostart(True, t) and autostart(None, t) and '--min' in winreg.QueryValueEx(
-            winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN), t)[0] and not autostart(False, t) and not autostart(None, t)
+        assert not autostart(None, t) and autostart(True, t) and autostart(None, t)
+        if WIN:
+            import winreg
+            assert '--min' in winreg.QueryValueEx(winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN), t)[0]
+        else:
+            assert '--min' in (Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / f'autostart/{t}.desktop').read_text()
+        assert not autostart(False, t) and not autostart(None, t)
         lang.LANG = 'de'
         assert tr('Page {n} / {total}', n=1, total=2) == 'Seite 1 / 2'
         lang.LANG = 'en'
@@ -2296,7 +2498,7 @@ if __name__ == '__main__':
         app = App(root)
         app.tray_start()
         if '--min' in sys.argv:
-            root.withdraw()
+            root.withdraw() if WIN else root.iconify()
         root.mainloop()
         app.tray.stop()
         app.pi_close()

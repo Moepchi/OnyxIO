@@ -1,0 +1,38 @@
+name: release
+# Tag v1.2.3 -> self-tests, DarkMountDeck.exe built from this commit, attached to a draft release (notes added by hand).
+# The build happens here, not on a PC, so every exe is traceable to the public source (needed for SignPath signing).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:  # manual run: build only, exe as workflow artifact
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt pyinstaller
+      - run: python deck.py test
+      - run: python darkmount.py test
+      - run: python sdhost.py test
+      - name: Tag must match VERSION in deck.py
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: grep -q "^VERSION = '${GITHUB_REF_NAME#v}'" deck.py
+      - run: pyinstaller DarkMountDeck.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DarkMountDeck
+          path: dist/DarkMountDeck.exe
+      - name: Attach to draft release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --notes ""
+          gh release upload "$GITHUB_REF_NAME" dist/DarkMountDeck.exe --clobber

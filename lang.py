@@ -1,6 +1,6 @@
 """UI language. English is the source language; other languages map its texts. deck.json "lang" picks one, without
-it Windows' display language decides (German -> Deutsch, anything else -> English). Texts are fixed at start."""
-import ctypes, json, sys
+it Windows' display language ($LANG on Linux) decides (German -> Deutsch, anything else -> English). Texts are fixed at start."""
+import ctypes, json, os, sys
 from pathlib import Path
 
 LANGS = {'en': 'English', 'de': 'Deutsch'}
@@ -15,6 +15,8 @@ def pick():
         lang = None
     if lang in LANGS:
         return lang
+    if sys.platform != 'win32':
+        return 'de' if os.environ.get('LANG', '').startswith('de') else 'en'
     return 'de' if ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF == 0x07 else 'en'
 
 
@@ -75,6 +77,7 @@ DE = {
     'Quit': 'Beenden',
     'Open': 'Öffnen',
     'Start with Windows': 'Mit Windows starten',
+    'Start at login': 'Beim Anmelden starten',
     '(none)': '(keins)',
     'Images': 'Bilder',
     'All files': 'Alle Dateien',
@@ -92,6 +95,8 @@ DE = {
         'Eine Plugin-Aktion auf eine Taste ziehen – ihre Einstellungen erscheinen hier.',
     # keyboard connection (status line)
     'Keyboard: {state}': 'Tastatur: {state}',
+    'Update {v} available': 'Update {v} verfügbar',
+    'Check for updates': 'Nach Updates suchen',
     'connecting …': 'verbinde …',
     'connected': 'verbunden',
     'connected, {what}': 'verbunden, {what}',
