@@ -4,7 +4,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/Moepchi/OnyxIO?color=0a7bbb"></a>
   <a href="https://github.com/Moepchi/OnyxIO/actions/workflows/tests.yml"><img alt="tests" src="https://img.shields.io/github/actions/workflow/status/Moepchi/OnyxIO/tests.yml?branch=main&label=tests&logo=github"></a>
   <img alt="python" src="https://img.shields.io/badge/python-%3E%3D3.10-3776ab?logo=python&logoColor=white">
-  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4">
+  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20%7C%20Linux%20%28experimental%29-0078d4">
   <img alt="languages" src="https://img.shields.io/badge/UI-English%20%7C%20Deutsch-555">
   <a href="https://github.com/Moepchi/OnyxIO/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/Moepchi/OnyxIO?color=e05d1a"></a>
   <a href="https://github.com/Moepchi/OnyxIO/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/Moepchi/OnyxIO/total?color=e05d1a"></a>
@@ -13,7 +13,7 @@
 
 # OnyxIO
 
-*Formerly Dark Mount Deck.* A lean, open replacement for IO Center for the **be quiet! Dark Mount** keyboard on Windows: the eight display keys
+*Formerly Dark Mount Deck.* A lean, open replacement for IO Center for the **be quiet! Dark Mount** keyboard on Windows (Linux experimental): the eight display keys
 work like a Stream Deck, plus lighting and macros. One Python program, no installer, no account, no telemetry.
 
 **[Deutsch weiter unten](#deutsch)**
@@ -96,6 +96,17 @@ pythonw deck.py
 - Build the .exe yourself: `pip install pyinstaller` then `pyinstaller OnyxIO.spec` (the same as the release
   build; it bundles the Media Dock's now-playing support and sets the version from `deck.py`).
 
+## Linux (experimental)
+Runs from source; tested on Ubuntu 24.04 so far, not yet on every desktop. Feedback welcome.
+```bash
+sudo apt install python3-pil python3-pil.imagetk python3-pystray playerctl   # plus wtype (Wayland) or xdotool (X11)
+sudo cp 70-darkmount.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
+python3 deck.py
+```
+The udev rule lets your user reach the keyboard and send keys without root (replug the keyboard once).
+Not yet on Linux: mouse steps in macros, plugin settings inside the window (they open separately),
+Windows-only `.exe` plugins. HTML plugins need Chromium or Chrome.
+
 ## Files
 | File | What |
 |---|---|
@@ -118,7 +129,7 @@ MIT – see [LICENSE](LICENSE). Stream Deck plugins keep their own licenses. "be
 <a id="deutsch"></a>
 # OnyxIO (Deutsch)
 
-*Früher Dark Mount Deck.* Ein schlanker, offener Ersatz für IO Center für die **be quiet! Dark Mount** unter Windows: Die acht Displaytasten
+*Früher Dark Mount Deck.* Ein schlanker, offener Ersatz für IO Center für die **be quiet! Dark Mount** unter Windows (Linux experimentell): Die acht Displaytasten
 funktionieren wie ein Stream Deck, dazu Beleuchtung und Makros. Ein Python-Programm, kein Installer, kein Konto,
 keine Telemetrie.
 
@@ -198,6 +209,17 @@ pythonw deck.py
 - Selbsttests: `python deck.py test`, `python darkmount.py test` und `python sdhost.py test` (ohne Tastatur).
 - .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller OnyxIO.spec` (wie der Release-Build;
   bündelt die Now-Playing-Unterstützung fürs Media Dock und setzt die Version aus `deck.py`).
+
+## Linux (experimentell)
+Läuft aus dem Quellcode; bisher unter Ubuntu 24.04 getestet, noch nicht auf jedem Desktop. Rückmeldungen willkommen.
+```bash
+sudo apt install python3-pil python3-pil.imagetk python3-pystray playerctl   # dazu wtype (Wayland) oder xdotool (X11)
+sudo cp 70-darkmount.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
+python3 deck.py
+```
+Die udev-Regel erlaubt deinem Benutzer ohne root den Zugriff auf die Tastatur und das Senden von Tasten (Tastatur
+einmal neu einstecken). Unter Linux noch nicht: Mausschritte in Makros, Plugin-Einstellungen im Fenster (sie öffnen
+sich separat), reine Windows-`.exe`-Plugins. HTML-Plugins brauchen Chromium oder Chrome.
 
 ## Lizenz
 MIT – siehe [LICENSE](LICENSE). Stream-Deck-Plugins behalten ihre eigenen Lizenzen. „be quiet!“, „Dark Mount“,

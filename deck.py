@@ -13,7 +13,7 @@ import darkmount as dm
 import lang, sdhost
 from lang import LANGS, tr
 
-VERSION = '1.4.0'  # raise together with the release tag, the update hint compares against it
+VERSION = '1.5.0'  # raise together with the release tag, the update hint compares against it
 REPO = 'Moepchi/OnyxIO'
 WIN = sys.platform == 'win32'  # everything else is treated as Linux
 FONT = 'arialbd.ttf' if WIN else 'DejaVuSans-Bold.ttf'  # Pillow finds both by name in the system font folders
