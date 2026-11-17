@@ -1,4 +1,4 @@
-"""Dark Mount Deck: the 8 display keys like a Stream Deck, plus the keyboard lighting.
+"""OnyxIO: the 8 display keys of the be quiet! Dark Mount like a Stream Deck, plus the keyboard lighting.
 
 Start: pythonw deck.py [--min]   (IO Center must not run: the keyboard allows only one session)
 Config: deck.json next to this file, edited in the window. Plugin log: deck.log. Self-check: python deck.py test
@@ -14,7 +14,7 @@ import lang, sdhost
 from lang import LANGS, tr
 
 VERSION = '1.4.0'  # raise together with the release tag, the update hint compares against it
-REPO = 'Moepchi/dark-mount-deck'
+REPO = 'Moepchi/OnyxIO'
 WIN = sys.platform == 'win32'  # everything else is treated as Linux
 FONT = 'arialbd.ttf' if WIN else 'DejaVuSans-Bold.ttf'  # Pillow finds both by name in the system font folders
 CFG = lang.HOME / 'deck.json'
@@ -186,7 +186,7 @@ PV_FPS, PV_PRESS = 25, 0.7  # live-preview frame rate and how often a random key
 # MulticolorStatic, Reactive, ScreenCapture, ScreenSync, Sensor, Static, Tornado, Video, Off, Ripple> -> our effect id
 PROFILE_FX = {0: 3, 1: 1, 4: 5, 5: 0, 6: 4, 10: 0, 11: 2, 13: 0, 14: 4}
 PROFILE_DIR = {'Up': 0, 'Down': 1, 'Left': 2, 'Right': 3, 'Clockwise': 4, 'CounterClockwise': 5}
-FXNAMES = dm.EFFECTS + ['Ripple', 'Custom']  # Ripple + Custom are Deck-only layer effects; firmware knows only dm.EFFECTS
+FXNAMES = dm.EFFECTS + ['Ripple', 'Custom']  # Ripple + Custom are OnyxIO-only layer effects; firmware knows only dm.EFFECTS
 RAINBOW_RGB = [ImageColor.getrgb(c) for c in dm.RAINBOW]  # Ripple's random-per-drop colors are picked from this loop
 MOTION = ['Still', 'Linear', 'Radial', 'Spiral', 'Random']  # Custom: how the colour field moves across the board
 REACT = ['None', 'Flash', 'Wave']  # Custom: what a key press does on top of the field
@@ -485,7 +485,7 @@ else:
             fcntl.ioctl(fd, 0x40045564, 1)  # UI_SET_EVBIT EV_KEY
             for c in set(EV.values()):
                 fcntl.ioctl(fd, 0x40045565, c)  # UI_SET_KEYBIT
-            fcntl.ioctl(fd, 0x405c5503, struct.pack('<4H80sI', 6, 0, 0, 1, b'Dark Mount Deck', 0))  # UI_DEV_SETUP, BUS_VIRTUAL
+            fcntl.ioctl(fd, 0x405c5503, struct.pack('<4H80sI', 6, 0, 0, 1, b'OnyxIO', 0))  # UI_DEV_SETUP, BUS_VIRTUAL
             fcntl.ioctl(fd, 0x5501)  # UI_DEV_CREATE
             time.sleep(.3)  # the desktop needs a moment to pick up the new device, else the first keys get lost
             _uinput.append(fd)
@@ -598,7 +598,7 @@ def newer_release():
 RUN = r'Software\Microsoft\Windows\CurrentVersion\Run'
 
 
-def autostart(on=None, name='DarkMountDeck'):
+def autostart(on=None, name='OnyxIO'):
     """Autostart at login (per user, starts in the tray). None: report and repoint a moved program; True/False: set.
     Windows: registry Run key. Linux: an XDG autostart .desktop file."""
     if not WIN:
@@ -608,7 +608,7 @@ def autostart(on=None, name='DarkMountDeck'):
         if on:
             exe = [sys.executable] + ([] if lang.FROZEN else [os.path.abspath(__file__)])
             f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_text(f'[Desktop Entry]\nType=Application\nName=Dark Mount Deck\nExec={shlex.join(exe)} --min\n', 'utf-8')
+            f.write_text(f'[Desktop Entry]\nType=Application\nName=OnyxIO\nExec={shlex.join(exe)} --min\n', 'utf-8')
         else:
             f.unlink(missing_ok=True)
         return on
@@ -648,7 +648,7 @@ class Device(threading.Thread):
         self.look, self.on_key, self.state = look, on_key, tr('connecting …')
         self.dirty, self.jobs = queue.Queue(), queue.Queue()  # (key, forced), (fn(ql), text when done)
         self.sent, self.pressed = {}, {}  # key -> (jpeg, time); key -> time of last physical press
-        self.lights = None  # fn(t, hits) -> {ledId: rgb}: Deck draws every LED (realtime); None = the keyboard's effect
+        self.lights = None  # fn(t, hits) -> {ledId: rgb}: OnyxIO draws every LED (realtime); None = the keyboard's effect
         self.hits = {}  # key id -> time of its last press, for Reaktiv / Ripple; memory only, dropped after 3 s
         self.record = None  # fn(key id, down) while the user records a macro or picks a key for one, else None
         self.dock_name = ''  # Media Dock: profile line (the page), now playing ((state, pos, dur, artist, album, title), art)
@@ -689,7 +689,7 @@ class Device(threading.Thread):
                         ql.call(0x10, 0x02, b'\1')  # back to the keyboard's own effect
                         rt = False
                     if lights and now - last >= 1 / FPS:
-                        if not rt:  # realtime: keys Deck does not send stay dark; without us the keyboard drops back
+                        if not rt:  # realtime: keys OnyxIO does not send stay dark; without us the keyboard drops back
                             ql.call(0x10, 0x02, b'\3')
                             shown, rt = {}, True
                         self.hits = {k: v for k, v in self.hits.items() if now - v < 3}
@@ -1039,7 +1039,7 @@ class App:
         self.choices = {label: (a, None) for a, (label, _) in ACTIONS.items()}  # label -> (action id, plugin action)
         self.choices.update({f'Plugin – {label}': ('plugin', au) for label, au in self.host.choices()})
         self.bg, self.icon, self.val, self.rot, self.turn = '#202020', '', tk.StringVar(), tk.IntVar(), tk.IntVar()
-        root.title('Dark Mount Deck')
+        root.title('OnyxIO')
         try:
             root.iconbitmap(default=ICON) if WIN else root.iconphoto(True, ImageTk.PhotoImage(Image.open(ICON)))
         except (tk.TclError, OSError):
@@ -1144,9 +1144,11 @@ class App:
         box.bind('<<ComboboxSelected>>', lambda e: self.set_lang(list(LANGS)[box.current()]))
         box.pack(side='left', padx=(0, 8))
         self.bar, self.laybox, self.upd_shown = f, lay, False
-        self.upd = tk.BooleanVar(value=self.cfg.get('updates', False))  # opt-in: off, Deck sends nothing anywhere
+        self.upd = tk.BooleanVar(value=self.cfg.get('updates', False))  # opt-in: off, OnyxIO sends nothing anywhere
         ttk.Checkbutton(f, text=tr('Check for updates'), variable=self.upd, command=self.set_updates).pack(
             side='left', padx=(0, 12), before=box)
+        if autostart(None, 'DarkMountDeck'):  # ponytail: moves the pre-rename (<= 1.4) entry, drop after a few releases
+            autostart(False, 'DarkMountDeck'), autostart(True)
         self.auto = tk.BooleanVar(value=autostart())
         ttk.Checkbutton(f, text=tr('Start with Windows') if WIN else tr('Start at login'), variable=self.auto,
                         command=lambda: autostart(self.auto.get())).pack(side='left', padx=(0, 12), before=box)
@@ -1203,7 +1205,7 @@ class App:
         ttk.Button(ed, text=tr('Apply'), command=self.apply_dock).grid(row=9, column=2, sticky='e', pady=(12, 0))
         ttk.Label(t, foreground='gray', wraplength=380, text=tr(
             'Color, clock, idle screen and image are stored on the dock and written only with Apply. '
-            'Time, page and what is playing are sent while Deck runs.')).grid(row=0, column=1, sticky='nw', padx=(24, 0))
+            'Time, page and what is playing are sent while OnyxIO runs.')).grid(row=0, column=1, sticky='nw', padx=(24, 0))
         self.dk_color.config(bg=d['color'], activebackground=d['color'])
         self.dk_clock.current(0 if d['h24'] else 1)
         self.dk_saver.current(d['saver'] - 1)
@@ -1239,7 +1241,7 @@ class App:
             after, off = int(self.dk_after.get()), int(self.dk_off.get())
             assert 5 <= after <= 3600 and 0 <= off <= 3600
         except (ValueError, AssertionError):
-            return messagebox.showerror('Dark Mount Deck', tr('Times: 5 – 3600 s, display off 0 – 3600 s.'),
+            return messagebox.showerror('OnyxIO', tr('Times: 5 – 3600 s, display off 0 – 3600 s.'),
                                         parent=self.root)
         d.update(color=self.dk_color.cget('bg'), h24=self.dk_clock.current() == 0, saver=self.dk_saver.current() + 1,
                  after=after, off=off, image=self.dk_path)
@@ -1257,7 +1259,7 @@ class App:
                 self.ui.put(lambda: (d.update(sent=crc), save(self.cfg)))
         self.dev.jobs.put((job, tr('Media Dock settings applied')))
 
-    # --- lighting: the base effect (bottom of the layer list) lives on the keyboard, the layers above it come from Deck
+    # --- lighting: the base effect (bottom of the layer list) lives on the keyboard, the layers above it come from OnyxIO
     def apply_light(self):
         L = self.cfg['light']
         save(self.cfg)
@@ -1265,7 +1267,7 @@ class App:
         self.dev.jobs.put((lambda ql: ql.set_lighting(data), tr('Lighting applied')))
         self.push_lights()
 
-    # --- layers: Deck draws every LED in realtime mode while it runs, the keyboard falls back to the general effect ---
+    # --- layers: OnyxIO draws every LED in realtime mode while it runs, the keyboard falls back to the general effect ---
     def build_keys(self, nb):
         t = ttk.Frame(nb, padding=10)
         nb.add(t, text=tr('Lighting'))
@@ -1418,7 +1420,7 @@ class App:
         try:
             light, layers = read_profile(p)
         except (OSError, KeyError, StopIteration, ValueError, zipfile.BadZipFile) as e:
-            return messagebox.showerror('Dark Mount Deck', tr('Cannot read profile: {e}', e=repr(e)), parent=self.root)
+            return messagebox.showerror('OnyxIO', tr('Cannot read profile: {e}', e=repr(e)), parent=self.root)
         self.layers[:] = layers
         self.cfg['light'] = light
         self.apply_light()  # also saves and pushes the layers
@@ -1634,7 +1636,7 @@ class App:
         ttk.Button(f, text=tr('Unbind'), command=self.unbind_macro).pack(side='left', padx=(6, 0))
         ttk.Button(ed, text=tr('Apply'), command=self.apply_macro).grid(row=6, column=1, sticky='e', pady=(12, 0))
         ttk.Label(t, foreground='gray', wraplength=760, justify='left', text=tr(
-            'Macros live on the keyboard and run there even without this program, like with IO Center. Deck reads '
+            'Macros live on the keyboard and run there even without this program, like with IO Center. OnyxIO reads '
             'your key presses for this only while recording or during “Assign key”. Display keys and Fn cannot be '
             'recorded or assigned; set up display keys under “Keys”.')).grid(
             row=1, column=0, columnspan=2, sticky='w', pady=(16, 0))
@@ -1815,7 +1817,7 @@ class App:
 
     def del_macro(self, ask=True):
         j = self.msel
-        if j is None or ask and not messagebox.askyesno('Dark Mount Deck', tr('Delete “{name}”?', name=self.macros[j]['name']),
+        if j is None or ask and not messagebox.askyesno('OnyxIO', tr('Delete “{name}”?', name=self.macros[j]['name']),
                                                         parent=self.root):
             return
         self.unbind_macro(j)
@@ -1913,7 +1915,7 @@ class App:
             if a == 'media' and v not in MEDIA:
                 raise ValueError(tr('Please choose a media action.'))
         except ValueError as e:
-            messagebox.showerror('Dark Mount Deck', str(e), parent=self.root)
+            messagebox.showerror('OnyxIO', str(e), parent=self.root)
             return False
         old = self.keys[self.sel]
         if k != old:
@@ -1931,7 +1933,7 @@ class App:
     def tray_start(self):  # tray icon: click = show the window, menu = show / quit
         import pystray
         show = lambda: self.ui.put(self.show)
-        self.tray = pystray.Icon('darkmount', Image.open(ICON), 'Dark Mount Deck', pystray.Menu(
+        self.tray = pystray.Icon('darkmount', Image.open(ICON), 'OnyxIO', pystray.Menu(
             pystray.MenuItem(tr('Open'), show, default=True),
             pystray.MenuItem(tr('Quit'), lambda: self.ui.put(self.root.destroy))))
         self.tray.run_detached()
@@ -1946,7 +1948,7 @@ class App:
         save(self.cfg)
         self.check_update()
 
-    def check_update(self):  # the only request Deck makes on its own, and only once the box is ticked
+    def check_update(self):  # the only request OnyxIO makes on its own, and only once the box is ticked
         def hint(tag):
             if not self.upd_shown:
                 self.upd_shown = True
@@ -1993,7 +1995,7 @@ class App:
 
     def show_page(self):
         self.page_lbl.config(text=tr('Page {n} / {total}', n=self.cfg['page'] + 1, total=len(self.cfg['pages'])))
-        self.dev.dock_name = self.page_lbl.cget('text') if self.cfg['dock']['pages'] else 'Dark Mount Deck'
+        self.dev.dock_name = self.page_lbl.cget('text') if self.cfg['dock']['pages'] else 'OnyxIO'
         self.dev.dock_keys = {i: (k.get('title') or '') for i, k in enumerate(self.keys) if k.get('dock')}
 
     def add_page(self):
@@ -2003,7 +2005,7 @@ class App:
 
     def del_page(self):
         if len(self.cfg['pages']) > 1 and messagebox.askyesno(
-                'Dark Mount Deck', tr('Delete page {n} with all its keys?', n=self.cfg['page'] + 1), parent=self.root):
+                'OnyxIO', tr('Delete page {n} with all its keys?', n=self.cfg['page'] + 1), parent=self.root):
             self.goto(self.cfg['page'], drop=True)
 
     # --- action list: drag onto a key or double-click for the selected one ------------------------------------
@@ -2018,7 +2020,7 @@ class App:
             self.tree_imgs.append(im)
             return im
         ttk.Style(self.root).configure('Treeview', background=FIELD, fieldbackground=FIELD, rowheight=22)
-        g = t.insert('', 'end', text=' Deck', open=True)
+        g = t.insert('', 'end', text=' OnyxIO', open=True)
         for a, (label, _) in ACTIONS.items():
             if a != 'none':
                 t.insert(g, 'end', f'a:{a}', text=f' {label}')
@@ -2327,7 +2329,7 @@ if __name__ == '__main__':
                              'colors': ['#ff2800', '#d3d6da']}, light
             assert [(L['name'], L['effect'], len(L['keys'])) for L in layers] == [('Reaktiv', 4, 105), ('Farbwelle', 1, 74)]
             assert layers[1]['direction'] == 3 and len(layers[1]['colors']) > 2, layers[1]
-        # UI: a layer, keys clicked into it, Deck draws it
+        # UI: a layer, keys clicked into it, OnyxIO draws it
         app.cfg['keymap'] = {'Key_A': 5}
         app.layers[:] = []
         app.fill_layers()
@@ -2477,7 +2479,7 @@ if __name__ == '__main__':
                     assert c.args[0].value in lang.DE, (f, c.args[0].value)
         assert set(MEDIA) - {'Play/Pause'} <= set(lang.DE) and set(dm.DIRECTIONS) <= set(lang.DE)
         assert set(dm.EFFECTS) - {'Tornado', 'Matrix'} <= set(lang.DE)
-        t = 'DarkMountDeckSelfTest'  # autostart on a throwaway entry
+        t = 'OnyxIOSelfTest'  # autostart on a throwaway entry
         assert not autostart(None, t) and autostart(True, t) and autostart(None, t)
         if WIN:
             import winreg

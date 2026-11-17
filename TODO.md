@@ -25,4 +25,6 @@ Today plugins are Stream Deck plugins (Elgato SDK, WebSocket, property inspector
 
 ## Smaller items
 - [ ] Square icon variant so the 16 px size stays recognizable.
-- [ ] Code signing for the .exe (removes the SmartScreen warning; needs a paid certificate).
+- [ ] Code signing via SignPath Foundation (free for OSS). Ready: release.yml, version info, wiki policy page.
+  Apply once the project has some reputation (stars, downloads, posts); after acceptance add the SignPath line
+  to the README download section and the signing step to release.yml.

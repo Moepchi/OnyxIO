@@ -222,11 +222,11 @@ DE = {
     'Macro created': 'Makro angelegt',
     'Macro deleted': 'Makro gelöscht',
     'Macro saved': 'Makro gespeichert',
-    'Macros live on the keyboard and run there even without this program, like with IO Center. Deck reads your '
+    'Macros live on the keyboard and run there even without this program, like with IO Center. OnyxIO reads your '
     'key presses for this only while recording or during “Assign key”. Display keys and Fn cannot be recorded or '
     'assigned; set up display keys under “Keys”.':
         'Makros liegen auf der Tastatur und laufen dort auch ohne dieses Programm, wie bei IO Center. Nur während der '
-        'Aufnahme oder „Taste zuweisen“ wertet Deck deine Tastendrücke dafür aus. Displaytasten und Fn lassen sich '
+        'Aufnahme oder „Taste zuweisen“ wertet OnyxIO deine Tastendrücke dafür aus. Displaytasten und Fn lassen sich '
         'nicht aufnehmen oder belegen; Displaytasten stellst du unter „Tasten“ ein.',
     'Accent color': 'Menüfarbe',
     'Clock': 'Uhr',
@@ -237,7 +237,7 @@ DE = {
     's (0 = never)': 's (0 = nie)',
     'Show what is playing (Spotify, browser, …)': 'Anzeigen, was gerade läuft (Spotify, Browser, …)',
     'Dock arrows ◀ ▶ switch pages, the page is shown as profile': 'Dock-Pfeile ◀ ▶ blättern die Seiten, die Seite erscheint als Profil',
-    'Color, clock, idle screen and image are stored on the dock and written only with Apply. Time, page and what is playing are sent while Deck runs.': 'Farbe, Uhr, Leerlaufgrafik und Bild liegen auf dem Dock und werden nur mit Übernehmen geschrieben. Uhrzeit, Seite und was gerade läuft schickt Deck, solange es läuft.',
+    'Color, clock, idle screen and image are stored on the dock and written only with Apply. Time, page and what is playing are sent while OnyxIO runs.': 'Farbe, Uhr, Leerlaufgrafik und Bild liegen auf dem Dock und werden nur mit Übernehmen geschrieben. Uhrzeit, Seite und was gerade läuft schickt OnyxIO, solange es läuft.',
     'Times: 5 – 3600 s, display off 0 – 3600 s.': 'Zeiten: 5 – 3600 s, Display aus 0 – 3600 s.',
     'Media Dock settings applied': 'Media-Dock-Einstellungen übernommen',
     'Mirror on the Media Dock': 'Auf dem Media Dock anzeigen',

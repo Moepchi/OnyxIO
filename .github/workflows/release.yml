@@ -1,5 +1,5 @@
 name: release
-# Tag v1.2.3 -> self-tests, DarkMountDeck.exe built from this commit, attached to a draft release (notes added by hand).
+# Tag v1.2.3 -> self-tests, OnyxIO.exe built from this commit, attached to a draft release (notes added by hand).
 # The build happens here, not on a PC, so every exe is traceable to the public source (needed for SignPath signing).
 on:
   push:
@@ -23,11 +23,11 @@ jobs:
         if: github.ref_type == 'tag'
         shell: bash
         run: grep -q "^VERSION = '${GITHUB_REF_NAME#v}'" deck.py
-      - run: pyinstaller DarkMountDeck.spec
+      - run: pyinstaller OnyxIO.spec
       - uses: actions/upload-artifact@v4
         with:
-          name: DarkMountDeck
-          path: dist/DarkMountDeck.exe
+          name: OnyxIO
+          path: dist/OnyxIO.exe
       - name: Attach to draft release
         if: github.ref_type == 'tag'
         shell: bash
@@ -35,4 +35,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --notes ""
-          gh release upload "$GITHUB_REF_NAME" dist/DarkMountDeck.exe --clobber
+          gh release upload "$GITHUB_REF_NAME" dist/OnyxIO.exe --clobber

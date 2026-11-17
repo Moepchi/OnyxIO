@@ -10,9 +10,9 @@ nums = tuple(map(int, (VERSION + '.0.0.0').split('.')[:4]))
 version = VSVersionInfo(
     ffi=FixedFileInfo(filevers=nums, prodvers=nums),
     kids=[StringFileInfo([StringTable('040904B0', [StringStruct(k, v) for k, v in {
-        'CompanyName': 'Dark Mount Deck contributors', 'FileDescription': 'Dark Mount Deck',
-        'ProductName': 'Dark Mount Deck', 'FileVersion': VERSION, 'ProductVersion': VERSION,
-        'OriginalFilename': 'DarkMountDeck.exe', 'InternalName': 'DarkMountDeck',
+        'CompanyName': 'OnyxIO contributors', 'FileDescription': 'OnyxIO',
+        'ProductName': 'OnyxIO', 'FileVersion': VERSION, 'ProductVersion': VERSION,
+        'OriginalFilename': 'OnyxIO.exe', 'InternalName': 'OnyxIO',
         'LegalCopyright': 'MIT License'}.items()])]),
           VarFileInfo([VarStruct('Translation', [0x0409, 1200])])])
 
@@ -44,7 +44,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='DarkMountDeck',
+    name='OnyxIO',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
