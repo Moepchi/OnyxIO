@@ -44,7 +44,11 @@ work like a Stream Deck, plus lighting and macros. One Python program, no instal
   Breathing, Reactive, Matrix – with direction, one / two colors or gradient, brightness and speed.
 - **Layers** on top: pick keys and edge LEDs with a click or a drag box, each layer with its own effect (shown while
   the program runs).
-- Live preview of the whole keyboard incl. the edge LEDs and the display key images.
+- **Deck-only layer effects** beyond the firmware's: **Ripple** (a colour wave spreads out from every pressed key,
+  like a stone in water) and **Custom** – a building-block effect from a motion pattern, a press reaction and a scale,
+  or switch on a **free formula** (`sin(t) + d/5`, …) for full control. See the
+  [Free formula wiki](https://github.com/Moepchi/dark-mount-deck/wiki/Free-formula).
+- Live preview of the whole keyboard incl. the edge LEDs and the display key images (can be turned off).
 - Import an IO Center profile (`.ioprofile`).
 - LED mapping wizard for keys that have no LED assigned yet.
 
@@ -139,7 +143,11 @@ keine Telemetrie.
   Atmen, Reaktiv, Matrix – mit Richtung, ein / zwei Farben oder Verlauf, Helligkeit und Tempo.
 - **Ebenen** darüber: Tasten und Rand-LEDs anklicken oder einrahmen, jede Ebene mit eigenem Effekt (sichtbar, solange
   das Programm läuft).
-- Live-Vorschau der ganzen Tastatur inkl. Rand-LEDs und Displaytasten-Bildern.
+- **Nur-Deck-Ebeneneffekte** über die der Firmware hinaus: **Wassertropfen** (eine Farbwelle breitet sich von jeder
+  gedrückten Taste aus, wie ein Stein im Wasser) und **Baukasten** – ein Effekt aus Muster, Druckreaktion und Skala,
+  oder per **freier Formel** (`sin(t) + d/5`, …) komplett selbst gebaut. Siehe das
+  [Wiki zur freien Formel](https://github.com/Moepchi/dark-mount-deck/wiki/Free-formula).
+- Live-Vorschau der ganzen Tastatur inkl. Rand-LEDs und Displaytasten-Bildern (abschaltbar).
 - IO-Center-Profil (`.ioprofile`) importieren.
 - Assistent zum Zuordnen der LEDs.
 

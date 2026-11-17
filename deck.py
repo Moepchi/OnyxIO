@@ -3,7 +3,7 @@
 Start: pythonw deck.py [--min]   (IO Center must not run: the keyboard allows only one session)
 Config: deck.json next to this file, edited in the window. Plugin log: deck.log. Self-check: python deck.py test
 """
-import ctypes, ctypes.wintypes as W, io, json, winreg, logging, math, os, queue, struct, subprocess, sys, threading, time, uuid, webbrowser, zipfile, zlib
+import ast, ctypes, ctypes.wintypes as W, io, json, winreg, logging, math, os, queue, random, struct, subprocess, sys, threading, time, uuid, webbrowser, zipfile, zlib
 import tkinter as tk
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -122,10 +122,16 @@ U, PAD, LED_R = 40, 22, 8  # px per key unit, canvas margin and edge LED radius 
 PADY, MINI = 34, 36  # canvas margin above/below; display key size in the picture (px)
 KB_W, KB_H = 2 * PAD + (24.25 + 2 * M) * U, 2 * PADY + (6.25 + M + MT) * U  # picture size at scale 1
 FPS, WAVE, CENTER = 25, 12, (11.6, 3.1)  # frames/s; key units per color cycle; middle for Tornado
+RIPPLE = (30, 28)  # ring speed (units/s per speed frac), reach where it dies (~board diagonal) — tune; width is per layer
+PV_FPS, PV_PRESS = 25, 0.7  # live-preview frame rate and how often a random key "presses" (s), so Reactive / Ripple move
 # IO Center profile effects are an index into its std::variant<Breathing, ColorWave, Gif, Image, Matrix,
 # MulticolorStatic, Reactive, ScreenCapture, ScreenSync, Sensor, Static, Tornado, Video, Off, Ripple> -> our effect id
 PROFILE_FX = {0: 3, 1: 1, 4: 5, 5: 0, 6: 4, 10: 0, 11: 2, 13: 0, 14: 4}
 PROFILE_DIR = {'Up': 0, 'Down': 1, 'Left': 2, 'Right': 3, 'Clockwise': 4, 'CounterClockwise': 5}
+FXNAMES = dm.EFFECTS + ['Ripple', 'Custom']  # Ripple + Custom are Deck-only layer effects; firmware knows only dm.EFFECTS
+RAINBOW_RGB = [ImageColor.getrgb(c) for c in dm.RAINBOW]  # Ripple's random-per-drop colors are picked from this loop
+MOTION = ['Still', 'Linear', 'Radial', 'Spiral', 'Random']  # Custom: how the colour field moves across the board
+REACT = ['None', 'Flash', 'Wave']  # Custom: what a key press does on top of the field
 
 
 def _frame_pos():
@@ -222,6 +228,34 @@ def _at(loop, f):  # color at f (any float, wraps) along a closed loop of colors
     return _mix(loop[i], loop[i + 1], f - i)
 
 
+# --- Custom free formula: a user expression -> palette position. Profiles are shared, so no bare eval:
+# only a whitelist of math over a fixed set of variables, no attribute/index access, no ** (exponent DoS).
+_FUNCS = {k: getattr(math, k) for k in ('sin', 'cos', 'tan', 'sqrt', 'exp', 'floor', 'ceil', 'atan2', 'hypot')}
+_FUNCS.update(abs=abs, min=min, max=max, pi=math.pi, tau=math.tau)
+_VARS = {'x', 'y', 't', 'd', 'a', 'seit'}  # position, time, distance/angle from centre, seconds since this key's press
+_OK = (ast.Expression, ast.Constant, ast.Name, ast.Load, ast.BinOp, ast.UnaryOp, ast.Add, ast.Sub, ast.Mult, ast.Div,
+       ast.FloorDiv, ast.Mod, ast.USub, ast.UAdd, ast.Call, ast.IfExp, ast.Compare, ast.BoolOp, ast.And, ast.Or,
+       ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq)
+
+
+def _compile_formula(expr):  # -> code object, or raises ValueError(msg) on anything outside the whitelist
+    tree = ast.parse(expr, mode='eval')
+    for node in ast.walk(tree):
+        if not isinstance(node, _OK):
+            raise ValueError(tr('not allowed: {x}', x=type(node).__name__))
+        if isinstance(node, ast.Name) and node.id not in _VARS and node.id not in _FUNCS:
+            raise ValueError(tr('unknown: {x}', x=node.id))
+        if isinstance(node, ast.Call) and not (isinstance(node.func, ast.Name) and node.func.id in _FUNCS):
+            raise ValueError(tr('only the listed functions'))
+    return compile(tree, '<formula>', 'eval')
+
+
+def _run_formula(code, p, t, hit):  # the whitelist already blocks escapes; empty builtins is a second wall
+    v = {'x': p['pos'][0], 'y': p['pos'][1], 't': t, 'd': p['dist'], 'a': p['ang'],
+         'seit': 1e9 if hit is None else t - hit}
+    return eval(code, {'__builtins__': {}}, {**_FUNCS, **v})
+
+
 def _prep(L, x, y):
     """Effect + LED position -> what led_color needs every frame."""
     cols = [ImageColor.getrgb(c) for c in L['colors']]
@@ -229,13 +263,40 @@ def _prep(L, x, y):
     ang = math.atan2(y - CENTER[1], x - CENTER[0]) / math.tau * (-1 if d == 5 else 1)
     u = {0: -y, 1: y, 2: -x, 3: x}.get(d)
     rest = cols[1] if len(cols) == 2 else (0, 0, 0)
+    code = None
+    if L.get('free') and L.get('formula'):  # a bad formula just falls back to the pattern, never crashes the render
+        try:
+            code = _compile_formula(L['formula'])
+        except (ValueError, SyntaxError):
+            code = None
     return {'fx': L['effect'], 'cols': cols, 'rest': rest, 'loop': cols if len(cols) > 2 else [cols[0], rest, cols[0]],
-            'b': L['brightness'] / 100, 'rate': .05 + .6 * s, 'fade': 3 - 2.5 * s, 'y': y, 'ang': ang,
-            'u': ang if u is None else u / WAVE, 'seed': x * .618 % 1}
+            'free': L.get('free', False), 'code': code,
+            'b': L['brightness'] / 100, 'rate': .05 + .6 * s, 'fade': 3 - 2.5 * s, 'y': y, 'ang': ang, 'pos': (x, y),
+            'u': ang if u is None else u / WAVE, 'seed': x * .618 % 1, 'width': .5 + L.get('thick', 50) / 100 * 3,
+            'rand': L.get('random', False), 'rpal': cols if len(cols) > 2 else RAINBOW_RGB,
+            'pat': L.get('pat', 0), 'react': L.get('react', 0), 'dist': math.hypot(x - CENTER[0], y - CENTER[1]),
+            'scale': .3 + L.get('thick', 50) / 100 * 2, 'noise': (math.sin(x * 12.9898 + y * 78.233) * 43758.5) % 1}
 
 
-def led_color(p, t, hit):
-    """One LED at time t (s); hit = time of its key's last press or None. Drawn after the keyboard's own effects."""
+def _ring(p, t, hits, pos):  # strongest press ring reaching this LED -> (glow 0..1, crest colour); for Ripple + Custom
+    speed, reach = RIPPLE
+    x0, y0 = p['pos']
+    glow, crest = 0.0, p['cols'][0]
+    for j, hj in (hits or {}).items():
+        jx, jy = (pos or {}).get(j, (x0, y0))
+        r = (t - hj) * speed * p['rate']  # ring radius grows with the layer's speed
+        fade = min(1.0, max(0.0, (reach - r) / (reach * .3)))  # full brightness until 70 % of reach, then out
+        env = math.exp(-((math.hypot(x0 - jx, y0 - jy) - r) / p['width']) ** 2) * fade
+        if env > glow:  # a random drop keeps one hue per press (seeded on its time), else the picked color/gradient
+            glow = env
+            crest = _at(p['rpal'], hj * .618 % 1) if p['rand'] else (
+                p['cols'][0] if len(p['cols']) < 3 else _at(p['loop'], r / WAVE))
+    return glow, crest
+
+
+def led_color(p, t, hit, hits=None, pos=None):
+    """One LED at time t (s); hit = time of its key's last press or None. Drawn after the keyboard's own effects.
+    hits (all key id -> press time) and pos (key id -> (x, y)) are used by Ripple + Custom, which spread across LEDs."""
     fx, cols = p['fx'], p['cols']
     if fx == 0:  # Statisch; a gradient lies still along the direction
         c = cols[0] if len(cols) < 3 else _at(p['loop'], p['u'])
@@ -249,9 +310,29 @@ def led_color(p, t, hit):
     elif fx == 4:  # Reaktiv: first color on a press, fades back to the second (or dark)
         k = 1 if hit is None else (t - hit) / p['fade']
         c = p['rest'] if k >= 1 else _mix(cols[0], p['rest'], k)
-    else:  # Matrix: one drop per column falls from top to bottom
+    elif fx == 5:  # Matrix: one drop per column falls from top to bottom
         k = (t * p['rate'] + p['seed']) % 1 * 10 - 2 - p['y']
         c = _mix(cols[0], p['rest'], k / 3) if 0 <= k < 3 else p['rest']
+    elif fx == 6:  # Ripple: every press sends a ring outward (stone in water), added over the base effect
+        bg = led_color(p['bg'], t, hit, hits, pos) if p.get('bg') else p['rest']  # the base effect shows through at rest
+        glow, crest = _ring(p, t, hits, pos)
+        return tuple(min(255, b + round(v * glow * p['b'])) for b, v in zip(bg, crest))
+    else:  # Custom (Baukasten): a colour field (a pattern, or a free formula) plus an optional press reaction
+        if p['code'] is not None:  # free formula -> a palette position; a runtime error (e.g. /0) just goes dark
+            try:
+                ph = _run_formula(p['code'], p, t, hit)
+            except Exception:
+                ph = 0.0
+        else:
+            mv, sc = t * p['rate'], p['scale']
+            ph = (p['u'] / sc, p['u'] / sc - mv, p['dist'] / (WAVE * sc) - mv,
+                  p['ang'] + p['dist'] / (WAVE * sc) - mv, p['noise'] - mv)[p['pat']]  # Still/Linear/Radial/Spiral/Random
+        c = _at(p['loop'], ph)
+        if p['react'] == 2:  # Welle: rings spread from each press, added over the field
+            glow, crest = _ring(p, t, hits, pos)
+            return tuple(min(255, round(f * p['b']) + round(v * glow * p['b'])) for f, v in zip(c, crest))
+        if p['react'] == 1 and hit is not None and t - hit < p['fade']:  # Aufleuchten: a white flash relaxes to the field
+            c = _mix((255, 255, 255), c, (t - hit) / p['fade'])
     return tuple(round(v * p['b']) for v in c)
 
 
@@ -259,8 +340,15 @@ def light_plan(layers, base, keymap):
     """LED id -> _prep state for every key with an LED and every edge LED. The first layer that holds the key (or edge)
     wins, everything else shows the general effect."""
     owner = {n: L for L in reversed(layers) for n in L['keys']}
-    plan = {keymap[n]: _prep(owner.get(n, base), *KEYPOS[n]) for n in KEYNAMES if n in keymap}
-    plan.update({i: _prep(owner.get(n, base), *FRAMEPOS[i]) for n, i in FRAMELEDS.items()})
+
+    def prep(n, x, y):
+        L = owner.get(n, base)
+        p = _prep(L, x, y)
+        if L is not base and L['effect'] == 6:  # a Ripple layer is drawn over the base effect, not instead of it
+            p['bg'] = _prep(base, x, y)
+        return p
+    plan = {keymap[n]: prep(n, *KEYPOS[n]) for n in KEYNAMES if n in keymap}
+    plan.update({i: prep(n, *FRAMEPOS[i]) for n, i in FRAMELEDS.items()})
     for i in KEY_LEDS:  # keys not mapped yet would stay dark: general effect, drawn at the middle
         plan.setdefault(i, _prep(base, *CENTER))
     return plan
@@ -446,7 +534,7 @@ class Device(threading.Thread):
         self.dirty, self.jobs = queue.Queue(), queue.Queue()  # (key, forced), (fn(ql), text when done)
         self.sent, self.pressed = {}, {}  # key -> (jpeg, time); key -> time of last physical press
         self.lights = None  # fn(t, hits) -> {ledId: rgb}: Deck draws every LED (realtime); None = the keyboard's effect
-        self.hits = {}  # key id -> time of its last press, only for Reaktiv; memory only, dropped after 3 s
+        self.hits = {}  # key id -> time of its last press, for Reaktiv / Ripple; memory only, dropped after 3 s
         self.record = None  # fn(key id, down) while the user records a macro or picks a key for one, else None
         self.dock_name = ''  # Media Dock: profile line (the page), now playing ((state, pos, dur, artist, album, title), art)
         self.dock_media, self.on_dock = None, None  # on_dock(step): dock arrow ◀ / ▶ pressed
@@ -684,7 +772,7 @@ class FxEditor(ttk.Frame):
         for r, text in enumerate([tr('Effect'), tr('Direction'), tr('Colors'), '', tr('Brightness %'), tr('Speed %')]):
             ttk.Label(self, text=text).grid(row=r, column=0, sticky='w', padx=(0, 12), pady=4)
         self.fx, self.fdir, self.cmode = (ttk.Combobox(self, state='readonly', values=v)
-                                          for v in ([tr(x) for x in dm.EFFECTS], [tr(x) for x in dm.DIRECTIONS],
+                                          for v in ([tr(x) for x in FXNAMES], [tr(x) for x in dm.DIRECTIONS],
                                                     self.MODES))
         for r, box in enumerate((self.fx, self.fdir, self.cmode)):
             box.grid(row=r, column=1, sticky='we', pady=4)
@@ -694,13 +782,68 @@ class FxEditor(ttk.Frame):
         self.lc_btn = [tk.Button(f, width=6, command=lambda j=j: self.pick(j)) for j in range(2)]
         for b in self.lc_btn:
             b.pack(side='left', padx=(0, 6))
-        self.bright, self.speed = tk.IntVar(), tk.IntVar()
+        self.bright, self.speed, self.thick = tk.IntVar(), tk.IntVar(), tk.IntVar()
         for r, var in ((4, self.bright), (5, self.speed)):
             tk.Scale(self, from_=0, to=100, orient='horizontal', length=300, variable=var).grid(row=r, column=1, sticky='w')
+        self.thick_lbl = ttk.Label(self, text=tr('Wave width %'))  # Ripple only, shown by fx_widgets()
+        self.thick_scale = tk.Scale(self, from_=0, to=100, orient='horizontal', length=300, variable=self.thick)
+        self.rand = tk.BooleanVar()
+        self.rand_chk = ttk.Checkbutton(self, text=tr('Random color per drop'), variable=self.rand)
+        self.pat_lbl = ttk.Label(self, text=tr('Pattern'))  # Custom only, shown by fx_widgets()
+        self.react_lbl = ttk.Label(self, text=tr('Press reaction'))
+        self.pat = ttk.Combobox(self, state='readonly', values=[tr(x) for x in MOTION], width=14)
+        self.react = ttk.Combobox(self, state='readonly', values=[tr(x) for x in REACT], width=14)
+        self.react.bind('<<ComboboxSelected>>', lambda e: self.fx_widgets())  # random colour only matters for Wave
+        self.free = tk.BooleanVar()  # Custom: write a formula instead of picking a pattern
+        self.free_chk = ttk.Checkbutton(self, text=tr('Free formula'), variable=self.free, command=self.fx_widgets)
+        self.formula = ttk.Entry(self, width=42)
+        self.formula.bind('<KeyRelease>', lambda e: self.check_formula())
+        self.f_hint = ttk.Label(self, foreground='gray', wraplength=320)
+        self.fx.bind('<<ComboboxSelected>>', lambda e: self.fx_widgets())
 
-    def set(self, L):
+    def fx_widgets(self):  # Ripple shows width; Custom shows scale + pattern, or (free) a formula box
+        fxi = self.fx.current()
+        rip, cust = fxi == FXNAMES.index('Ripple'), fxi == FXNAMES.index('Custom')
+        free = cust and self.free.get()
+        self.thick_lbl.config(text=tr('Pattern scale %') if cust else tr('Wave width %'))
+        grid = lambda w, on, **g: w.grid(**g) if on else w.grid_remove()
+        grid(self.thick_lbl, rip or (cust and not free), row=6, column=0, sticky='w', padx=(0, 12), pady=4)
+        grid(self.thick_scale, rip or (cust and not free), row=6, column=1, sticky='w')
+        grid(self.free_chk, cust, row=7, column=1, sticky='w', pady=(4, 0))
+        grid(self.pat_lbl, cust and not free, row=8, column=0, sticky='w', padx=(0, 12), pady=4)
+        grid(self.pat, cust and not free, row=8, column=1, sticky='w', pady=4)
+        grid(self.formula, free, row=8, column=1, sticky='we', pady=4)
+        grid(self.f_hint, free, row=9, column=1, sticky='w')
+        grid(self.react_lbl, cust, row=10, column=0, sticky='w', padx=(0, 12), pady=4)
+        grid(self.react, cust, row=10, column=1, sticky='w', pady=4)
+        grid(self.rand_chk, rip or (cust and self.react.current() == REACT.index('Wave')),
+             row=11, column=1, sticky='w', pady=(4, 0))
+        if free:
+            self.check_formula()
+
+    def check_formula(self):  # live feedback under the formula box: ok, the error, or the variable cheat-sheet
+        expr = self.formula.get().strip()
+        if not expr:
+            return self.f_hint.config(foreground='gray', text=tr(
+                'x y = key, t = s, d a = dist/angle from centre, seit = s since press; value = palette position'))
+        try:
+            _compile_formula(expr)
+            self.f_hint.config(foreground='#3a8a3a', text=tr('Formula OK'))
+        except (ValueError, SyntaxError) as e:
+            self.f_hint.config(foreground='#c04040', text='⚠ ' + str(e))
+
+    def set(self, L, base=False):
         c = L['colors']
+        self.fx.config(values=[tr(x) for x in (dm.EFFECTS if base else FXNAMES)])  # Ripple is a layer-only effect
         self.fx.current(L['effect'])
+        self.thick.set(L.get('thick', 50))
+        self.rand.set(bool(L.get('random')))
+        self.pat.current(L.get('pat', 0))
+        self.react.current(L.get('react', 0))
+        self.free.set(bool(L.get('free')))
+        self.formula.delete(0, 'end')
+        self.formula.insert(0, L.get('formula', ''))
+        self.fx_widgets()
         self.fdir.current(L['direction'])
         self.cmode.current(min(len(c), 3) - 1)
         own = c if len(c) < 3 else []
@@ -712,8 +855,15 @@ class FxEditor(ttk.Frame):
 
     def get(self):
         n = self.cmode.current()
-        return {'effect': self.fx.current(), 'direction': self.fdir.current(), 'brightness': self.bright.get(),
-                'speed': self.speed.get(), 'colors': list(self.grad) if n == 2 else self.lc[:n + 1]}
+        fx = self.fx.current()
+        rip, cust = fx == FXNAMES.index('Ripple'), fx == FXNAMES.index('Custom')
+        extra = {'thick': self.thick.get(), 'random': self.rand.get()} if rip else (
+            {'thick': self.thick.get(), 'random': self.rand.get(), 'pat': self.pat.current(),
+             'react': self.react.current(), 'free': self.free.get(), 'formula': self.formula.get().strip()}
+            if cust else {})
+        return {'effect': fx, 'direction': self.fdir.current(), 'brightness': self.bright.get(),
+                'speed': self.speed.get(), 'colors': list(self.grad) if n == 2 else self.lc[:n + 1],
+                **extra}  # width/random (Ripple) and pattern/reaction (Custom) are layer-only config fields
 
     def widgets(self):
         n = self.cmode.current()
@@ -961,6 +1111,9 @@ class App:
         nb.add(t, text=tr('Lighting'))
         self.cal, self.newmap, self.lsel = None, {}, None  # LED walk position, its map, selected layer index
         self.layers = self.cfg.setdefault('layers', [])
+        self.pv_on = tk.BooleanVar(value=self.cfg.get('preview', True))  # the live preview: the effect, animated, in the app
+        self.pv_hits, self.pv_rand, self.pv_token = {}, 0, None
+        self.pv_plan, self.pv_pos, self.pv_names = {}, {}, {}
         self.kb = tk.Canvas(t, width=KB_W, height=KB_H, bg=BG, highlightthickness=0)
         self.kb.grid(row=0, column=0, columnspan=2, sticky='w')
         self.k, self.ox, self.mini_src = 1, 0, [None] * 8  # picture scale and x offset (fixed now)
@@ -974,6 +1127,8 @@ class App:
             bar.grid(row=1, column=0, columnspan=2, sticky='w', pady=(8, 0))
             for text, cmd in buttons:
                 ttk.Button(bar, text=text, command=cmd).pack(side='left', padx=(0, 6))
+        ttk.Checkbutton(self.toolbar, text=tr('Live preview'), variable=self.pv_on, command=self.preview_toggle).pack(
+            side='left', padx=(12, 0))
         self.calbar.grid_remove()
         self.khint = ttk.Label(t, foreground='gray', wraplength=2 * PAD + 24.25 * U, justify='left')
         self.khint.grid(row=2, column=0, columnspan=2, sticky='w', pady=(8, 0))
@@ -1000,6 +1155,48 @@ class App:
         for i in range(8):
             self.kb.tag_bind(f'disp{i}', '<Button-1>', lambda e, i=i: (nb.select(0), self.select(i)))
         self.fill_layers()
+        self.preview_start()  # start the live preview if it is on
+
+    # --- live preview: run the very same led_color the keyboard gets, animated, onto the picture ------------------------
+    def preview_sync(self):  # rebuild the render plan + LED-id -> canvas-name map after any lighting change
+        keymap = self.cfg.get('keymap', {})
+        self.pv_plan = light_plan(self.layers, self.cfg['light'], keymap)
+        self.pv_pos = {i: p['pos'] for i, p in self.pv_plan.items()}
+        self.pv_names = {i: n for n, i in {**keymap, **FRAMELEDS}.items()}
+
+    def preview_start(self):  # (re)start or stop the loop to match pv_on, without persisting
+        if self.pv_on.get():
+            self.preview_sync()
+            self.preview_tick()
+        else:
+            self.pv_token = None  # stops the running chain
+            self.draw_keys()  # back to the still render
+
+    def preview_toggle(self):  # the checkbutton: remember the choice, then apply it
+        self.cfg['preview'] = self.pv_on.get()
+        save(self.cfg)
+        self.preview_start()
+
+    def preview_tick(self, token=None):
+        if token is None:  # a fresh start; a new token invalidates any older chain still pending
+            self.pv_token = token = object()
+        if token is not self.pv_token or not self.pv_on.get() or self.cal is not None:
+            return
+        if not self.kb.winfo_viewable():  # another tab is up or the window sits in the tray: idle, keep the chain alive
+            return self.root.after(200, lambda: self.preview_tick(token))
+        now = time.monotonic()
+        if now - self.pv_rand > PV_PRESS and self.pv_plan:  # a random key "press" so Reactive / Ripple come alive
+            keys = [i for i in self.pv_plan if i in KEY_LEDS]
+            if keys:
+                self.pv_hits[random.choice(keys)] = now
+            self.pv_rand = now
+        self.pv_hits = {i: v for i, v in self.pv_hits.items() if now - v < 3}
+        for i, p in self.pv_plan.items():
+            n = self.pv_names.get(i)
+            if n:
+                self.kb.itemconfig('led_' + n, fill='#%02x%02x%02x' % led_color(p, now, self.pv_hits.get(i),
+                                                                                self.pv_hits, self.pv_pos))
+        self.root.after(round(1000 / PV_FPS), lambda: self.preview_tick(token))
 
     def cur(self):  # the selected layer, None for the base effect
         return self.layers[self.lsel] if self.lsel is not None and self.lsel < len(self.layers) else None
@@ -1007,7 +1204,7 @@ class App:
     def fill_layers(self, sel=None):
         self.llist.delete(0, 'end')
         for L in self.layers:
-            self.llist.insert('end', f'{L["name"]}  ({tr(dm.EFFECTS[L["effect"]])}, {len(L["keys"])})')
+            self.llist.insert('end', f'{L["name"]}  ({tr(FXNAMES[L["effect"]])}, {len(L["keys"])})')
         self.llist.insert('end', tr('Base effect  ({fx}, rest)', fx=tr(dm.EFFECTS[self.cfg['light']['effect']])))
         self.select_layer(sel if sel is not None and sel <= len(self.layers) else 0)
 
@@ -1022,7 +1219,7 @@ class App:
         self.lname.delete(0, 'end')
         self.lname.insert(0, L['name'] if L else tr('Base effect'))
         self.lname.config(state='normal' if L else 'disabled')
-        self.layer_ed.set(L or self.cfg['light'])
+        self.layer_ed.set(L or self.cfg['light'], base=L is None)
         self.draw_keys()
 
     def layers_changed(self, sel=None):
@@ -1100,7 +1297,8 @@ class App:
         for name, i in FRAMELEDS.items():
             x, y = FRAMEPOS[i]
             c.create_oval(cx(x) - r, cy(y) - r, cx(x) + r, cy(y) + r, fill=look(owner.get(name, base), x, y),
-                          outline=SEL if name in mine else LINE, width=max(1, 3 * k) if name in mine else 1, tags=(name,))
+                          outline=SEL if name in mine else LINE, width=max(1, 3 * k) if name in mine else 1,
+                          tags=(name, f'led_{name}'))
         seen = set()
         for name, label, x, y, w in KEYS:
             if self.cal is None:
@@ -1109,7 +1307,8 @@ class App:
                 fill = SEL if self.newmap.get(name) == self.cal else '#2e7d32' if name in self.newmap else FIELD
             x0, y0 = cx(x), cy(y)
             c.create_rectangle(x0 + 2, y0 + (3 if name not in seen else -3), x0 + w * u - 2, y0 + u - 2, fill=fill,
-                               outline=SEL if name in mine else fill, width=max(1, 3 * k), tags=(name,))
+                               outline=SEL if name in mine else fill, width=max(1, 3 * k),
+                               tags=(name, f'led_{name}') if self.cal is None else (name,))
             if label and name not in seen:
                 c.create_text(x0 + w * u / 2, y0 + u / 2, text=label, font=('Segoe UI', max(5, round(10 * k))), tags=(name,),
                               fill='black' if sum(ImageColor.getrgb(fill)) > 380 else FG)
@@ -1170,11 +1369,14 @@ class App:
             self.layers_changed()
 
     def push_lights(self):
+        if hasattr(self, 'pv_plan'):
+            self.preview_sync()  # keep the live preview in step with every edit
         if not self.layers:
             self.dev.lights = None
             return
         plan = light_plan(self.layers, self.cfg['light'], self.cfg.get('keymap', {}))
-        self.dev.lights = lambda t, hits: {i: led_color(p, t, hits.get(i)) for i, p in plan.items()}
+        pos = {i: p['pos'] for i, p in plan.items()}  # a Ripple layer needs every press's LED position
+        self.dev.lights = lambda t, hits: {i: led_color(p, t, hits.get(i), hits, pos) for i, p in plan.items()}
 
     def calibrate(self):  # light one LED after the other, the user clicks the key that is lit
         self.cal, self.newmap = KEY_LEDS[0], dict(self.cfg.get('keymap', {}))
@@ -1197,6 +1399,7 @@ class App:
         self.toolbar.grid()
         self.draw_keys()
         self.push_lights()
+        self.preview_start()  # calibration blocked the preview; resume it
 
     # --- keys -------------------------------------------------------------------------------------------------------
     def action_id(self):  # -> (action id, plugin action uuid or None)
@@ -1878,10 +2081,48 @@ if __name__ == '__main__':
         a, b = _prep(wave, 1, 1), _prep(wave, 7, 1)
         assert led_color(a, 0, None) != led_color(b, 0, None) and led_color(a, 0, None) != led_color(a, .5, None)
         assert led_color(a, 0, None) == led_color(_prep(wave, 1, 5), 0, None)  # 'Rechts' ignores the row
-        for fx in range(6):  # every effect gives valid colors everywhere, any time, with 1, 2 or 7 colors
+        for fx in range(8):  # every effect gives valid colors everywhere, any time, with 1, 2 or 7 colors
             for cs in (['#ff0000'], ['#ff0000', '#00ff00'], dm.RAINBOW):
                 q = _prep({**wave, 'effect': fx, 'colors': cs, 'direction': fx}, 3, 2)
-                assert all(0 <= v <= 255 for t in (0, .3, 7.7) for v in led_color(q, t, t - .1)), (fx, cs)
+                assert all(0 <= v <= 255 for t in (0, .3, 7.7) for v in led_color(q, t, t - .1, {5: 0.}, {5: (1, 1)})), (fx, cs)
+        rp = _prep({'effect': 6, 'direction': 3, 'brightness': 100, 'speed': 50, 'colors': ['#ff0000']}, 10, 1)  # Ripple
+        assert led_color(rp, 10 / (RIPPLE[0] * .35), None, {1: 0.}, {1: (0, 1)})[0] > \
+            led_color(rp, 0, None, {1: 0.}, {1: (0, 1)})[0] == 0  # dark until the ring (speed .35) reaches d=10, then lit
+        assert led_color(rp, 3, None, {1: 0.}, {1: (0, 1)})[0] == 0  # gone once the ring passed its reach
+        bg = _prep({'effect': 0, 'direction': 0, 'brightness': 100, 'speed': 50, 'colors': ['#003000']}, 10, 1)
+        rpb = {**rp, 'bg': bg}  # Ripple over a green base effect
+        assert led_color(rpb, 0, None, {}, {})[1] == 0x30  # at rest the base effect shows through
+        peak = led_color(rpb, 10 / (RIPPLE[0] * .35), None, {1: 0.}, {1: (0, 1)})
+        assert peak[0] > 0 and peak[1] == 0x30  # the red ring adds on top of the green background
+        rw = {'effect': 6, 'direction': 3, 'brightness': 100, 'speed': 50, 'colors': ['#ff0000']}
+        thin, wide = _prep({**rw, 'thick': 0}, 12, 1), _prep({**rw, 'thick': 100}, 12, 1)  # LED at d=12, ring at r=10
+        assert led_color(wide, 10 / (RIPPLE[0] * .35), None, {1: 0.}, {1: (0, 1)})[0] > \
+            led_color(thin, 10 / (RIPPLE[0] * .35), None, {1: 0.}, {1: (0, 1)})[0]  # a wider wave reaches further
+        rr = _prep({**rw, 'random': True}, 10, 1)  # random drop: two presses at different times give different hues
+        at = lambda hj: led_color(rr, hj + 10 / (RIPPLE[0] * .35), None, {1: hj}, {1: (0, 1)})
+        assert at(0.) != at(1.3) and sum(at(0.)) > 0  # a colour, and not the same one each press
+        cu = {'effect': 7, 'direction': 3, 'brightness': 100, 'speed': 50, 'colors': dm.RAINBOW}  # Custom (Baukasten)
+        for pat in range(1, 5):  # Linear/Radial/Spiral/Random move: the field is not frozen over time (Still, pat 0, is)
+            cp = _prep({**cu, 'pat': pat}, 7, 2)
+            assert led_color(cp, 0, None) != led_color(cp, 2.5, None), pat
+        cf = _prep({**cu, 'pat': 0, 'react': 1}, 7, 2)  # Flash: pressed key is brighter than the resting field
+        assert sum(led_color(cf, 10, 10)) > sum(led_color(cf, 10, None))
+        cw = _prep({**cu, 'pat': 2, 'react': 2}, 10, 1)  # Wave: a ring adds over the field
+        assert sum(led_color(cw, 10 / (RIPPLE[0] * .35), None, {1: 0.}, {1: (0, 1)})) > sum(led_color(cw, 0, None, {}, {}))
+        assert _compile_formula('sin(t) + x/3 if d < 5 else a')  # Phase 3: a valid formula compiles
+        for bad in ('__import__("os")', 'x.__class__', 't**9', 'open("f")', '(1).real', 'lambda: 0'):
+            try:
+                _compile_formula(bad)
+                raise AssertionError(bad)  # every escape / exponent must be rejected before it can run
+            except (ValueError, SyntaxError):
+                pass
+        cff = _prep({**cu, 'free': True, 'formula': 'sin(t*2) + d/5'}, 7, 2)  # free field compiles and moves over time
+        assert cff['code'] is not None and led_color(cff, 0, None) != led_color(cff, 1.0, None)
+        cbad = _prep({**cu, 'free': True, 'formula': '1/0'}, 7, 2)  # compiles, errors per frame -> dark, never raises
+        assert all(0 <= v <= 255 for v in led_color(cbad, 1, None))
+        cinv = _prep({**cu, 'free': True, 'formula': 'x.__class__'}, 7, 2)  # rejected -> code None -> falls back to pattern
+        assert cinv['code'] is None and all(0 <= v <= 255 for v in led_color(cinv, 1, None))
+
         # layers: first wins, rest = general effect, every key LED and edge LED drawn
         base = {'effect': 0, 'direction': 0, 'brightness': 100, 'speed': 50, 'colors': ['#010203']}
         lay = [{'name': 'a', 'keys': ['Key_A', *[f'Led_NumpadTop{j}' for j in range(1, 6)]], **base, 'colors': ['#ff0000']},
@@ -1925,6 +2166,9 @@ if __name__ == '__main__':
         app.drag(ev(*pt('Key_A')), 0)
         app.drag(ev(*pt('Key_A'), 4), 2)  # Ctrl: A off again
         assert app.layers[0]['keys'] == [f'Led_NumpadTop{j}' for j in range(1, 6)] and app.dev.lights(0, {})[5] == (0, 0, 128)
+        app.pv_on.set(True)
+        app.preview_start()  # one live-preview frame colours the picture from the very same led_color, no crash
+        assert app.pv_names[171] == 'Led_NumpadTop1' and app.kb.itemcget('led_Led_NumpadTop1', 'fill').startswith('#')
         app.drag(ev(1, 1), 0)
         app.drag(ev(1, 1), 2)  # click into nothing: layer unchanged
         x, y = app.kx(20.75), (app.ky(-MT) + LED_R + app.ky(1.25)) / 2 - MINI / 2 - 2
