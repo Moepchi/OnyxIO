@@ -13,7 +13,7 @@ import darkmount as dm
 import lang, sdhost
 from lang import LANGS, tr
 
-VERSION = '1.5.0'  # raise together with the release tag, the update hint compares against it
+VERSION = '1.5.1'  # raise together with the release tag, the update hint compares against it
 REPO = 'Moepchi/OnyxIO'
 WIN = sys.platform == 'win32'  # everything else is treated as Linux
 FONT = 'arialbd.ttf' if WIN else 'DejaVuSans-Bold.ttf'  # Pillow finds both by name in the system font folders
@@ -711,6 +711,10 @@ class Device(threading.Thread):
                         continue
                     if (feat, cmd) == (0x11, 0x02) and len(p) > 3 and p[3] == 8 and self.on_dock:  # ActionFired, action Profile:
                         self.on_dock({3: 1, 4: -1}.get(p[4] if len(p) > 4 else 0, 0))  # the dock's ▶ (03) / ◀ (04)
+                    if (feat, cmd) == (0x11, 0x02) and len(p) >= 2 and int.from_bytes(p[:2], 'little') in dm.DISPLAY_KEYS:
+                        i = int.from_bytes(p[:2], 'little') - 0x6d  # ActionFired = display key press; the InputEvent
+                        self.pressed[i] = time.monotonic()  # "pressed" does not always come (seen on Linux), release does
+                        self.on_key(i, True)
                     if feat == 0x12 and len(p) >= 3 and p[0] in (8, 9):  # InputEvent pressed / released
                         key = int.from_bytes(p[1:3], 'little')
                         rec = self.record  # only while the user asked for it (Makros: Aufnehmen / Taste zuweisen)
@@ -719,10 +723,8 @@ class Device(threading.Thread):
                         if key not in dm.DISPLAY_KEYS:  # any other key: only when it lights up, never stored or logged
                             if p[0] == 8 and self.lights and key in KEY_LEDS:  # key id == LED id (checked)
                                 self.hits[key] = time.monotonic()
-                        else:
-                            if p[0] == 8:
-                                self.pressed[key - 0x6d] = time.monotonic()
-                            self.on_key(key - 0x6d, p[0] == 8)
+                        elif p[0] == 9:  # display key released; its press came as ActionFired above
+                            self.on_key(key - 0x6d, False)
             except Exception as e:  # unplugged, standby, or a bad plugin image: never let the session thread die
                 if not isinstance(e, (OSError, dm.QLinkError, queue.Empty)):
                     log.exception('device loop')
@@ -779,7 +781,14 @@ class Device(threading.Thread):
         img = self.look(i)
         jpeg = dm.key_jpeg(img)
         if jpeg != old:
-            ql.set_key_image(0x6d + i, jpeg)
+            try:
+                ql.set_key_image(0x6d + i, jpeg)
+            except dm.QLinkError as e:  # no numpad module (the displays sit in it): keep the rest working, retry later
+                if 'InsufficientResources' not in str(e):
+                    raise
+                self.sent[i] = (None, now)
+                self.dirty.put((i, False))  # not forced: next try after MIN_GAP, so the image shows once it is attached
+                return True
             self.sent[i] = (jpeg, now)
             if i in self.dock_keys:  # a mirrored key changed: show it on the dock (dock_sync does the sending)
                 self.dock_flash = (self.dock_keys[i], img, now)
@@ -1725,6 +1734,9 @@ class App:
     def toggle_record(self):
         if self.rec is not None:
             return self.stop_record()
+        if self.recwhat.current() != 1 and not self.cfg.get('keymap'):  # key ids -> names come from the LED mapping
+            return messagebox.showinfo('OnyxIO', tr('Recording keys needs the LED mapping: Lighting → “Map LEDs …” once.'),
+                                       parent=self.root)
         rec = self.rec = []  # (time, key id, down) / (time, 'm', mask): only until Stopp, then steps; never logged
         km, what = self.cfg.get('keymap', {}), self.recwhat.current()
 
@@ -2224,6 +2236,9 @@ if __name__ == '__main__':
         dev.dock_keys, shown[0] = {0: 'Living room'}, 'c'  # a mirrored key: its change arms a dock flash
         dev.upload(ql, 0, True)
         assert dev.dock_flash and dev.dock_flash[0] == 'Living room'
+        nopad = types.SimpleNamespace(set_key_image=lambda *a: (_ for _ in ()).throw(dm.QLinkError('InsufficientResources')))
+        shown[0] = 'd'  # no numpad: the key is skipped (no disconnect) and queued again for a later try
+        assert dev.upload(nopad, 1, True) and dev.dirty.get_nowait() == (1, False) and dev.sent[1][0] is None
         plays = []  # dock_sync shows the flash, then (once it ages out) falls back to now playing
         ql.dock_playback = lambda *a: plays.append(a)
         ql.dock_image = ql.dock_profile = ql.dock_time = lambda *a: None

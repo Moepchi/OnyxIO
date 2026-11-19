@@ -206,6 +206,8 @@ DE = {
     'Recording appends at the end. Several steps: Shift/Ctrl-click.':
         'Aufnahme hängt hinten an. Mehrere Schritte: Shift/Strg-Klick.',
     'Recording – press the keys, then “■ Stop”.': 'Aufnahme läuft – drücke die Tasten, dann „■ Stopp“.',
+    'Recording keys needs the LED mapping: Lighting → “Map LEDs …” once.':
+        'Für die Tastenaufnahme braucht OnyxIO die LED-Zuordnung: einmal Beleuchtung → „LEDs zuordnen …“.',
     'Delay after (ms)': 'Pause danach (ms)',
     'Set': 'Setzen',
     'Assign key …': 'Taste zuweisen …',

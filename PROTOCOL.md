@@ -82,6 +82,8 @@ stehen dort als UTF-16-Tabelle `GetLightingMode|SetLightingMode|…`. Bevor ein 
   - bei jedem Druck zusätzlich als `Bindings.ActionFired` (0x11/0x02) `[keyId u16][?][action][data]` mit der Belegung,
     die auf der Tastatur gespeichert ist. Das unbekannte Byte war 00 bei OpenUrl und 01 bei WindowsShortcut.
     Auch mit `Disable` kommt die Meldung, als `[keyId u16] 01 00` (bestätigt, alle 8 Tasten).
+  - Das `InputEvent` 08 (gedrückt) kommt bei Displaytasten **nicht immer**: am 19.11.2026 unter Linux nur
+    ActionFired + 09 (normale Tasten lieferten 08 und 09). OnyxIO nimmt deshalb ActionFired als Druck, 09 als Loslassen.
   - **Ohne `StartRecording` kommt nichts an**, auch keine 0x11/0x02-Meldung (bestätigt, alle 8 Tasten gedrückt).
     Eigene Software muss den Mitschnitt also starten und alle anderen Tasten sofort verwerfen.
 

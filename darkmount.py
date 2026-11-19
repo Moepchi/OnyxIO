@@ -87,6 +87,7 @@ class QLink:
         # two handles: a blocking read on a synchronous handle would otherwise block writes
         self.w, self.r = open_hid(path), open_hid(path)
         self.sid = self.rid = 0
+        self.closed = False
         self.replies, self.notes = queue.Queue(), queue.Queue()
         threading.Thread(target=self._reader, daemon=True).start()
 
@@ -96,6 +97,8 @@ class QLink:
             try:
                 p = hid_read(self.r)[1:]  # strip report id
             except OSError:  # unplugged or closed: end quietly, call() then times out
+                return
+            if self.closed:  # the OS reuses the handle number for the next QLink: reading on would steal its replies
                 return
             if len(p) < 64 or crc16(p[:62]) != int.from_bytes(p[62:64], 'little'):
                 continue
@@ -109,7 +112,8 @@ class QLink:
             buf = b''
 
     def close(self):
-        # ponytail: a reader blocked in ReadFile only ends with the next report; harmless leftover thread
+        # ponytail: a reader blocked in ReadFile only ends with the next report (then sees closed); tiny race left
+        self.closed = True
         close_hid(self.w)
         close_hid(self.r)
 
