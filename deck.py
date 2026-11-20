@@ -13,7 +13,7 @@ import darkmount as dm
 import lang, sdhost
 from lang import LANGS, tr
 
-VERSION = '1.6.0'  # raise together with the release tag, the update hint compares against it
+VERSION = '1.6.1'  # raise together with the release tag, the update hint compares against it
 REPO = 'Moepchi/OnyxIO'
 WIN = sys.platform == 'win32'  # everything else is treated as Linux
 FONT = 'arialbd.ttf' if WIN else 'DejaVuSans-Bold.ttf'  # Pillow finds both by name in the system font folders
@@ -2546,4 +2546,6 @@ if __name__ == '__main__':
         app.pi_close()
         app.host.stop()
         if app.restart:
-            subprocess.Popen([sys.executable, *([] if lang.FROZEN else [os.path.abspath(__file__)]), *[a for a in sys.argv[1:] if a != '--min']])
+            # the .exe child must unpack its own copy: by default it reuses ours, which is deleted as we exit (icon.ico gone)
+            subprocess.Popen([sys.executable, *([] if lang.FROZEN else [os.path.abspath(__file__)]), *[a for a in sys.argv[1:] if a != '--min']],
+                             env={**os.environ, 'PYINSTALLER_RESET_ENVIRONMENT': '1'})
