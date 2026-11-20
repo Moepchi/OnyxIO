@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<script>
+// OnyxIO calls this like the Stream Deck app does; everything else is plain SDK 2 plus the onyxio.* events.
+function connectElgatoStreamDeckSocket(port, uuid, registerEvent) {
+  const ws = new WebSocket('ws://127.0.0.1:' + port);
+  const send = (event, payload, context) => ws.send(JSON.stringify({event, context, payload}));
+  ws.onopen = () => ws.send(JSON.stringify({event: registerEvent, uuid}));
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.event === 'keyDown') send('onyxio.setLight', {leds: {all: '#ff0000'}});  // whole keyboard red
+    if (m.event === 'keyUp') {
+      send('onyxio.setLight', {leds: {}});  // back to the normal lighting
+      send('onyxio.dockText', {text: 'Hello from a plugin'}, m.context);
+    }
+  };
+}
+</script>

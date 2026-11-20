@@ -38,6 +38,16 @@ work like a Stream Deck, plus lighting and macros. One Python program, no instal
 - Node.js and HTML plugins (HTML ones run in a hidden Microsoft Edge).
 - The plugin's **settings page (Property Inspector) is embedded** right in the window.
 - Encrypted Marketplace plugins are skipped on purpose (no DRM circumvention); see `deck.log` for the list.
+- **Plugin extras:** besides the normal SDK events a plugin can send these over the same WebSocket
+  (example: [`examples/onyxio-demo.sdPlugin`](examples/onyxio-demo.sdPlugin)):
+
+  | Event | Payload | Effect |
+  |---|---|---|
+  | `onyxio.setLight` | `{"leds": {"Key_A": "#ff0000", "Led_KeyboardTop1": "#00ff00", "all": "#000000"}}` | Colors LEDs over every layer; `{}` turns the plugin's lights off. Names as in `deck.json` `keymap` and the edge LEDs `Led_Keyboard…` / `Led_Numpad…`. Ends with the plugin. |
+  | `onyxio.setPage` | `{"page": 2}` | Switches the display keys to that page (1 = first). |
+  | `onyxio.dockText` | `{"text": "Hello"}` + `context` | Shows the key's image and the text in the Media Dock's media view for 10 s (the dock has no command to switch to it). |
+
+  Plugins still never see normal key presses, only their own display keys.
 
 ### Lighting
 - Base effect computed by the keyboard itself (keeps running without this program): Static, Color wave, Tornado,
@@ -151,6 +161,10 @@ keine Telemetrie.
 - Node.js- und HTML-Plugins (HTML-Plugins laufen in einem unsichtbaren Microsoft Edge).
 - Die **Plugin-Einstellungen (Property Inspector) sind direkt ins Fenster eingebettet**.
 - Verschlüsselte Marketplace-Plugins werden bewusst übersprungen (keine DRM-Umgehung); Liste in `deck.log`.
+- **Plugin-Extras:** Zusätzlich zu den normalen SDK-Ereignissen kann ein Plugin über denselben WebSocket
+  `onyxio.setLight` (LEDs über allen Ebenen färben), `onyxio.setPage` (Seite wechseln) und `onyxio.dockText` (Text in der Medienansicht auf
+  dem Media Dock) senden – Details in der Tabelle im englischen Teil, Beispiel unter
+  [`examples/onyxio-demo.sdPlugin`](examples/onyxio-demo.sdPlugin). Normale Tastendrücke sehen Plugins weiterhin nicht.
 
 ### Beleuchtung
 - Grundeffekt, den die Tastatur selbst rechnet (läuft auch ohne dieses Programm): Statisch, Farbwelle, Tornado,

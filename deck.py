@@ -13,7 +13,7 @@ import darkmount as dm
 import lang, sdhost
 from lang import LANGS, tr
 
-VERSION = '1.5.1'  # raise together with the release tag, the update hint compares against it
+VERSION = '1.6.0'  # raise together with the release tag, the update hint compares against it
 REPO = 'Moepchi/OnyxIO'
 WIN = sys.platform == 'win32'  # everything else is treated as Linux
 FONT = 'arialbd.ttf' if WIN else 'DejaVuSans-Bold.ttf'  # Pillow finds both by name in the system font folders
@@ -1165,6 +1165,10 @@ class App:
         self.dev = Device(lambda i: render(self.look(self.keys[i])), self.on_key)
         self.dev.on_dock = lambda step: step and self.cfg['dock']['pages'] and self.ui.put(
             lambda: self.goto(self.cfg['page'] + step))
+        # plugin extras (sdhost: onyxio.*); with layers the frame reads host.light live, nothing to rebuild
+        self.host.on_light = lambda: self.layers or self.cal or self.push_lights()
+        self.host.on_page = self.goto
+        self.host.on_dock = lambda i, text: setattr(self.dev, 'dock_flash', (text, self.dev.look(i), time.monotonic()))
         self.push_lights()
         self.load_macros()  # waits in the job queue until the keyboard is there
         if connect:
@@ -1542,12 +1546,22 @@ class App:
     def push_lights(self):
         if hasattr(self, 'pv_plan'):
             self.preview_sync()  # keep the live preview in step with every edit
-        if not self.layers:
+        if not self.layers and not self.host.light:
             self.dev.lights = None
             return
-        plan = light_plan(self.layers, self.cfg['light'], self.cfg.get('keymap', {}))
+        keymap = self.cfg.get('keymap', {})
+        plan = light_plan(self.layers, self.cfg['light'], keymap)
         pos = {i: p['pos'] for i, p in plan.items()}  # a Ripple layer needs every press's LED position
-        self.dev.lights = lambda t, hits: {i: led_color(p, t, hits.get(i), hits, pos) for i, p in plan.items()}
+        ids = {**keymap, **FRAMELEDS}  # LED names plugins use -> LED ids
+
+        def lights(t, hits):
+            frame = {i: led_color(p, t, hits.get(i), hits, pos) for i, p in plan.items()}
+            for leds in list(self.host.light.values()):  # plugin lights sit on top of every layer
+                if 'all' in leds:
+                    frame = dict.fromkeys(frame, leds['all'])
+                frame.update({ids[n]: c for n, c in leds.items() if n in ids})
+            return frame
+        self.dev.lights = lights
 
     def calibrate(self):  # light one LED after the other, the user clicks the key that is lit
         self.cal, self.newmap = KEY_LEDS[0], dict(self.cfg.get('keymap', {}))
@@ -2263,6 +2277,17 @@ if __name__ == '__main__':
         assert app.cur() is None and app.llist.size() == 1  # only the base effect
         app.cfg['keymap'], km0 = {'Key_A': 30}, app.cfg.get('keymap')
         app.draw_keys()  # a mapped key without a layer shows the base effect
+        app.host.light = {'p': {'Key_A': (1, 2, 3), 'Led_KeyboardTop1': (4, 5, 6), 'Nope': (7, 7, 7)}}  # plugin extras
+        app.host.on_light()  # no layers: a plugin light alone turns realtime on, the base effect fills the rest
+        frame = app.dev.lights(0, {})
+        assert frame[30] == (1, 2, 3) and frame[107] == (4, 5, 6) and len(frame) > 100
+        app.host.light = {'p': {'all': (9, 9, 9)}}
+        assert set(app.dev.lights(0, {}).values()) == {(9, 9, 9)}
+        app.host.light = {}
+        app.host.on_light()
+        assert app.dev.lights is None  # back to the keyboard's own effect
+        app.host.on_dock(0, 'Hi')
+        assert app.dev.dock_flash[0] == 'Hi'
         app.cfg['keymap'] = km0 or {}
         app.layer_ed.set({'effect': 4, 'direction': 0, 'brightness': 50, 'speed': 50, 'colors': ['#ff0000', '#0000ff']})
         app.apply_layer()

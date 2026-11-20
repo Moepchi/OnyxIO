@@ -1,0 +1,15 @@
+{
+  "Name": "OnyxIO Demo",
+  "UUID": "io.onyx.demo",
+  "Version": "1.0",
+  "Author": "OnyxIO",
+  "Description": "Shows the OnyxIO plugin extras: hold the key to light the keyboard red, release to send text to the Media Dock.",
+  "SDKVersion": 2,
+  "CodePath": "plugin.html",
+  "Software": {"MinimumVersion": "6.0"},
+  "OS": [{"Platform": "windows", "MinimumVersion": "10"}],
+  "Actions": [
+    {"UUID": "io.onyx.demo.light", "Name": "Light demo", "Tooltip": "OnyxIO plugin extras",
+     "States": [{"Title": "Hold me"}]}
+  ]
+}

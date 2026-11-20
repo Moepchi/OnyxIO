@@ -26,6 +26,22 @@ TYPES = {'.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8'
 log = logging.getLogger('sdhost')
 
 
+@functools.cache
+def plugin_job():
+    """Windows: a kill-on-close job for the plugin processes, so they die with OnyxIO even when it is killed or crashes.
+    Otherwise an orphaned headless Edge keeps the plugin's profile, every new start hands off to it and exits, and the
+    plugin never connects again. Only plugins go in (not OnyxIO itself): programs started by macros must outlive it.
+    The handle stays open on purpose; Windows closes it when we exit, which ends the job."""
+    import ctypes
+    k = ctypes.windll.kernel32
+    k.CreateJobObjectW.restype = ctypes.c_void_p
+    job = ctypes.c_void_p(k.CreateJobObjectW(None, None))
+    info = (ctypes.c_byte * 144)()  # JOBOBJECT_EXTENDED_LIMIT_INFORMATION (64-bit layout)
+    ctypes.c_uint32.from_buffer(info, 16).value = 0x2000  # LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    k.SetInformationJobObject(job, 9, info, 144)
+    return lambda proc: k.AssignProcessToJobObject(job, ctypes.c_void_p(int(proc._handle)))
+
+
 def find_img(base):  # manifest paths come without extension; PIL cannot draw SVG, those stay None
     for ext in ('@2x.png', '.png', '.jpg', '.gif', ''):
         p = Path(f'{base}{ext}')
@@ -47,6 +63,13 @@ def decode(s, base):  # setImage payload: data URL or a file inside the plugin -
         return p and load_img(p)
     except (OSError, ValueError):
         return None
+
+
+def rgb(c):  # '#rrggbb' -> (r, g, b); anything else raises ValueError (the message is dropped)
+    c = str(c)
+    if len(c) != 7 or c[0] != '#':
+        raise ValueError(f'color {c!r}')
+    return tuple(bytes.fromhex(c[1:]))
 
 
 def edge():  # Edge on Windows, any Chromium on Linux (both understand --app / --headless)
@@ -130,6 +153,8 @@ class Host:
         self.plugins, self.skipped = scan()
         self.owner = {a: p for p in self.plugins.values() for a in p['actions']}
         self.live, self.pis, self.port = {}, {}, 0  # live: context -> {'state', 'img', 'title'}; pis: context -> Conn
+        self.light = {}  # plugin uuid -> {LED name or 'all': (r, g, b)} from onyxio.setLight, drawn over every layer
+        self.on_light = self.on_page = self.on_dock = lambda *a: None  # set by the app, run in its UI thread
 
     @property
     def keys(self):  # the page on the display keys right now; the other pages are "disappeared"
@@ -238,6 +263,8 @@ class Host:
         try:
             p['proc'] = subprocess.Popen(p['cmd'] + args, cwd=p['dir'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                          stderr=subprocess.DEVNULL, creationflags=NOWIN)
+            if WIN and not plugin_job()(p['proc']):  # ponytail: what it spawns before this line escapes; Edge's main process, which holds the profile, cannot
+                log.warning('%s will not end with OnyxIO', p['uuid'])
             log.info('started %s', p['uuid'])
         except OSError as e:
             log.warning('cannot start %s: %s', p['uuid'], e)
@@ -330,6 +357,8 @@ class Host:
             pass
         if who and who[0] == 'plugin' and self.plugins[who[1]]['conn'] is conn:
             self.plugins[who[1]]['conn'] = None
+            if self.light.pop(who[1], None):  # a plugin that ends (or crashes) takes its lights with it
+                self.notify(self.on_light)
         elif who and who[0] == 'pi' and self.pis.get(who[1]) is conn:
             del self.pis[who[1]]
             i = self.index(who[1])
@@ -375,6 +404,17 @@ class Host:
             return webbrowser.open(pl['url'])
         if ev == 'logMessage':
             return log.info('%s: %s', who[1], pl.get('message'))
+        # OnyxIO extras on top of the Stream Deck SDK (README "Plugin extras"); plugins never see normal key presses
+        if ev == 'onyxio.setLight' and from_plugin:  # {'leds': {'Key_A': '#ff0000', 'all': ...}}; empty = off again
+            leds = {str(n): rgb(c) for n, c in (pl.get('leds') or {}).items()}
+            if leds:
+                self.light[who[1]] = leds
+            else:  # none left: the keyboard's own effect can come back
+                self.light.pop(who[1], None)
+            return self.notify(self.on_light)
+        if ev == 'onyxio.setPage' and from_plugin:  # {'page': 1-based}, wraps around like the arrows
+            n = int(pl['page']) - 1
+            return self.notify(lambda: self.on_page(n))
         i = self.index(ctx if from_plugin else who[1])
         if i is None:
             return
@@ -390,6 +430,9 @@ class Host:
             other = self.pis.get(k['context']) if from_plugin else self.owner[k['value']]['conn']
             if other:
                 other.send(note)
+        elif ev == 'onyxio.dockText' and from_plugin:  # {'text'}: this key's image + text on the Media Dock for a while
+            text = str(pl.get('text', ''))[:40]
+            self.notify(lambda: self.on_dock(i, text))
         elif ev == 'sendToPlugin':
             self.to_plugin(i, 'sendToPlugin', payload=pl)
         elif ev == 'sendToPropertyInspector' and k['context'] in self.pis:
@@ -450,11 +493,31 @@ if __name__ == '__main__' and __import__('sys').argv[1:2] == ['test']:
         time.sleep(0.02)
     assert host.keys[0]['settings']['b'] == 2 and None in flags and 0 in flags
     assert host.decorate(host.keys[0])['title'] == 'Hi'
+    c.sendall(frame({'event': 'onyxio.setLight', 'payload': {'leds': {'all': '#ff0000'}}}))
+    c.sendall(frame({'event': 'onyxio.setLight', 'payload': {'leds': {'all': 'red'}}}))  # bad color: dropped
+    c.sendall(frame({'event': 'onyxio.dockText', 'context': 'c1', 'payload': {'text': 'Hi'}}))
+    for _ in range(50):
+        if sum(map(callable, flags)) >= 2:
+            break
+        time.sleep(0.02)
+    docks = []
+    host.on_dock = lambda i, text: docks.append((i, text))
+    [g() for g in flags if callable(g)]
+    assert host.light == {'x': {'all': (255, 0, 0)}} and docks == [(0, 'Hi')]
+    host.handle(None, ('plugin', 'x'), {'event': 'onyxio.setLight', 'payload': {'leds': {}}})
+    assert host.light == {}  # empty = off, so OnyxIO can leave realtime mode
+    host.light['x'] = {'all': (255, 0, 0)}
     host.key(0, False)  # release flips a two-state key
     assert host.live['c1']['state'] == 1 and recv(f)['event'] == 'keyUp'
     bad = socket.create_connection(('127.0.0.1', host.port))  # a website must not get in
     bad.sendall(f'GET / HTTP/1.1\r\nHost: 127.0.0.1:{host.port}\r\nOrigin: https://evil.example\r\nUpgrade: websocket\r\n\r\n'.encode())
     assert bad.recv(64).startswith(b'HTTP/1.1 403')
+    f.close(), c.close()  # the plugin ends: its lights go with it (the makefile holds the socket open too)
+    for _ in range(50):
+        if not host.light:
+            break
+        time.sleep(0.02)
+    assert host.light == {}
     import tempfile
     with tempfile.TemporaryDirectory() as t:  # an HTML plugin's page gets the registerPlugin call appended
         Path(t, 'p.html').write_text('<p>hi</p>')
@@ -462,4 +525,10 @@ if __name__ == '__main__' and __import__('sys').argv[1:2] == ['test']:
         g = socket.create_connection(('127.0.0.1', host.port))
         g.sendall(f'GET /h/p.html?plugin=1 HTTP/1.1\r\nHost: 127.0.0.1:{host.port}\r\n\r\n'.encode())
         assert b'"h", "registerPlugin"' in g.makefile('rb').read()
+    if WIN:  # a plugin outlives a killed OnyxIO no more: a child that ties a sleeper and dies hard takes it along
+        py = 'import os, subprocess, sys, sdhost; p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"]); ' \
+             'assert sdhost.plugin_job()(p); print(p.pid, flush=True); os._exit(9)'
+        pid = int(subprocess.run([sys.executable, '-c', py], capture_output=True, text=True, cwd=Path(__file__).parent).stdout)
+        time.sleep(0.5)
+        assert b' %d ' % pid not in subprocess.run(['tasklist', '/fi', f'PID eq {pid}'], capture_output=True).stdout
     print('ok')
