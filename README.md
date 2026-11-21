@@ -90,7 +90,7 @@ Actions straight from the tagged source – see the **[Code signing policy](http
 
 ## Requirements (running from source)
 - Windows 10 / 11, be quiet! Dark Mount
-- Python 3.10+, Pillow, pystray and the `winrt` packages for the Media Dock (`pip install -r requirements.txt`)
+- Python 3.10+, Pillow, pystray, sv-ttk (the look) and the `winrt` packages for the Media Dock (`pip install -r requirements.txt`)
 - Optional: Node.js (for Node plugins), Microsoft Edge (for HTML plugins and plugin settings, preinstalled on Windows)
 
 ## Start
@@ -115,7 +115,8 @@ python3 deck.py
 ```
 The udev rule lets your user reach the keyboard and send keys without root (replug the keyboard once).
 Not yet on Linux: mouse steps in macros, plugin settings inside the window (they open separately),
-Windows-only `.exe` plugins. HTML plugins need Chromium or Chrome.
+Windows-only `.exe` plugins. HTML plugins need Chromium or Chrome. The modern look needs `pip install sv-ttk`
+(e.g. in a venv); without it OnyxIO uses plain ttk.
 
 ## Files
 | File | What |
@@ -208,7 +209,7 @@ exe baut GitHub Actions direkt aus dem getaggten Quellcode – siehe die **[Code
 
 ## Voraussetzungen (aus dem Quellcode)
 - Windows 10 / 11, be quiet! Dark Mount
-- Python 3.10+, Pillow, pystray und die `winrt`-Pakete fürs Media Dock (`pip install -r requirements.txt`)
+- Python 3.10+, Pillow, pystray, sv-ttk (die Optik) und die `winrt`-Pakete fürs Media Dock (`pip install -r requirements.txt`)
 - Optional: Node.js (für Node-Plugins), Microsoft Edge (für HTML-Plugins und Plugin-Einstellungen, bei Windows dabei)
 
 ## Starten
@@ -233,7 +234,8 @@ python3 deck.py
 ```
 Die udev-Regel erlaubt deinem Benutzer ohne root den Zugriff auf die Tastatur und das Senden von Tasten (Tastatur
 einmal neu einstecken). Unter Linux noch nicht: Mausschritte in Makros, Plugin-Einstellungen im Fenster (sie öffnen
-sich separat), reine Windows-`.exe`-Plugins. HTML-Plugins brauchen Chromium oder Chrome.
+sich separat), reine Windows-`.exe`-Plugins. HTML-Plugins brauchen Chromium oder Chrome. Die moderne Optik braucht
+`pip install sv-ttk` (z. B. in einer venv); ohne nutzt OnyxIO schlichtes ttk.
 
 ## Lizenz
 MIT – siehe [LICENSE](LICENSE). Stream-Deck-Plugins behalten ihre eigenen Lizenzen. „be quiet!“, „Dark Mount“,

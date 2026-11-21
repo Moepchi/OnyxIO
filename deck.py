@@ -8,12 +8,16 @@ import tkinter as tk
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox, ttk
-from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps, ImageTk
+from PIL import Image, ImageChops, ImageColor, ImageDraw, ImageFont, ImageOps, ImageTk
+try:
+    import sv_ttk  # Windows 11 look; Linux distributions rarely package it, plain ttk works there too
+except ImportError:
+    sv_ttk = None
 import darkmount as dm
 import lang, sdhost
 from lang import LANGS, tr
 
-VERSION = '1.6.1'  # raise together with the release tag, the update hint compares against it
+VERSION = '1.7.0'  # raise together with the release tag, the update hint compares against it
 REPO = 'Moepchi/OnyxIO'
 WIN = sys.platform == 'win32'  # everything else is treated as Linux
 FONT = 'arialbd.ttf' if WIN else 'DejaVuSans-Bold.ttf'  # Pillow finds both by name in the system font folders
@@ -886,33 +890,138 @@ def dock_picture(path):  # -> 320x240, cropped to fill; None without a usable fi
         return None
 
 
-BG, FIELD, LINE, FG, DIM, SEL ='#1e1e1e', '#2b2b2b', '#3c3c3c', '#e0e0e0', '#7a7a7a', '#4a8fe7'
+BG, FIELD, LINE, FG, DIM, SEL = '#1c1c1c', '#2a2a2a', '#3c3c3c', '#fafafa', '#7a7a7a', '#2f60d8'  # Sun Valley dark
+LABEL = 150  # px, label column of the editors
+SIDE, HOVER, ORANGE, PICK = '#141414', '#262626', '#e8590c', '#b5420a'  # sidebar, its hover row, OnyxIO accent, selected list row
+ICONS = ('Segoe Fluent Icons' if sys.getwindowsversion().build >= 22000 else 'Segoe MDL2 Assets') if WIN else None
+
+
+def slider(parent, var, lo, hi, length, command=None):
+    """ttk.Scale with its value beside it (ttk shows no number and would store floats in the IntVar)."""
+    f = ttk.Frame(parent)
+    ttk.Scale(f, from_=lo, to=hi, length=length, variable=var,
+              command=lambda v: (var.set(round(float(v))), command and command(var.get()))).pack(side='left')
+    ttk.Label(f, textvariable=var, width=4, anchor='e').pack(side='left', padx=(8, 0))
+    return f
+
+
+class Nav(ttk.Frame):
+    """Sidebar in place of tabs. Pages are its children; add() and select() work like ttk.Notebook's."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.side = tk.Frame(self, bg=SIDE, padx=8, pady=8)
+        self.side.grid(row=0, column=0, rowspan=2, sticky='ns')
+        self.title = ttk.Label(self, font=('Segoe UI Semibold', 16), padding=(24, 14, 24, 4))
+        self.title.grid(row=0, column=1, sticky='w')
+        self.pages, self.items, self.cur = [], [], 0
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(1, weight=1)
+
+    def item(self, text, icon, command, bottom=False):  # one row: orange bar, icon, text
+        row = tk.Frame(self.side, bg=SIDE, cursor='hand2')
+        row.hot = ORANGE if bottom else FG  # hover color: orange for Quit
+        row.bar = tk.Frame(row, bg=SIDE, width=3)
+        row.bar.pack(side='left', fill='y', pady=8)
+        row.icon = tk.Label(row, text=icon if ICONS else '', font=(ICONS or 'Segoe UI', 13), bg=SIDE, fg=DIM, padx=10)
+        row.icon.pack(side='left')
+        row.text = tk.Label(row, text=text, font=('Segoe UI', 11), bg=SIDE, fg=DIM, anchor='w', pady=9)
+        row.text.pack(side='left', fill='x', expand=True, padx=(0, 28))
+        row.pack(side='bottom' if bottom else 'top', fill='x', pady=1)
+        for w in (row, row.icon, row.text):
+            w.bind('<Button-1>', lambda e: command())
+            w.bind('<Enter>', lambda e: self.paint(row, True))
+            w.bind('<Leave>', lambda e: self.paint(row, False))
+        return row
+
+    def paint(self, row, hover=False):
+        on = self.items.index(row) == self.cur if row in self.items else False
+        for w in (row, row.icon, row.text):
+            w.config(bg=HOVER if on or hover else SIDE)
+        row.text.config(fg=FG if on else row.hot if hover else DIM)
+        row.icon.config(fg=ORANGE if on else row.hot if hover else DIM)
+        row.bar.config(bg=ORANGE if on or hover and row.hot == ORANGE else HOVER if hover else SIDE)
+
+    def add(self, page, text, icon=''):
+        i = len(self.pages)
+        self.items.append(self.item(text, icon, lambda: self.select(i)))
+        page.configure(padding=(24, 8, 24, 16))
+        page.grid(row=1, column=1, sticky='nsew')  # all pages in one cell: the window keeps the size of the largest
+        self.pages.append(page)
+        self.select(self.cur)
+
+    def tabs(self):
+        return self.pages
+
+    def select(self, i):
+        self.cur = i
+        self.pages[i].tkraise()
+        self.title.config(text=self.items[i].text['text'])
+        for row in self.items:
+            self.paint(row)
+
+
+def orange(root):
+    """Sun Valley paints its accent (checkboxes, switches, sliders, selections) blue: make it OnyxIO orange."""
+    im = Image.open(Path(sv_ttk.__file__).parent / 'theme' / 'spritesheet_dark.png').convert('RGBA')
+    h, sat, v = im.convert('RGB').convert('HSV').split()
+    blue = ImageChops.multiply(h.point(lambda x: 255 * (120 <= x <= 185)), sat.point(lambda x: 255 * (x > 60)))
+    new = Image.merge('HSV', (h.point(lambda x: 15), sat.point(lambda x: min(255, x * 1.4)), v)).convert('RGB')
+    out = Image.composite(new, im.convert('RGB'), blue)
+    out.putalpha(im.getchannel('A'))
+    sheet = ImageTk.PhotoImage(out, master=root)
+    root.tk.eval(f'foreach {{n x y w h}} $::spriteinfo {{$ttk::theme::sv_dark::I($n) copy {sheet} '
+                 f'-from $x $y [expr {{$x+$w}}] [expr {{$y+$h}}] -compositingrule set}}')
+    root.tk.eval(f'set ttk::theme::sv_dark::colors(-selbg) {PICK}; configure_colors')  # list/combobox selection
+
+
+def popup(root, x, y, entries):
+    """Context menu in the app's look (a tk.Menu stays a Windows menu). entries: (text, icon, command or None = greyed) or None = line."""
+    w = tk.Toplevel(root, bg=LINE, padx=1, pady=1)
+    w.overrideredirect(True)
+    f = tk.Frame(w, bg=FIELD, pady=4)
+    f.pack()
+    for e in entries:
+        if not e:
+            tk.Frame(f, bg=LINE, height=1).pack(fill='x', padx=10, pady=4)
+            continue
+        text, icon, cmd = e
+        row = tk.Frame(f, bg=FIELD, cursor='hand2' if cmd else '')
+        ic = tk.Label(row, text=icon if ICONS else '', font=(ICONS or 'Segoe UI', 10), bg=FIELD, fg=DIM if cmd else LINE, width=3)
+        ic.pack(side='left', padx=(6, 0))
+        tx = tk.Label(row, text=text, font=('Segoe UI', 10), bg=FIELD, fg=FG if cmd else DIM, anchor='w', pady=5)
+        tx.pack(side='left', fill='x', expand=True, padx=(2, 28))
+        row.pack(fill='x', padx=4)
+        if cmd:
+            for part in (row, ic, tx):
+                part.bind('<Enter>', lambda e, r=row, ic=ic, tx=tx: (r.config(bg=HOVER), tx.config(bg=HOVER), ic.config(bg=HOVER, fg=ORANGE)))
+                part.bind('<Leave>', lambda e, r=row, ic=ic, tx=tx: (r.config(bg=FIELD), tx.config(bg=FIELD), ic.config(bg=FIELD, fg=DIM)))
+                part.bind('<ButtonRelease-1>', lambda e, cmd=cmd: (w.destroy(), cmd()))
+    w.update_idletasks()  # keep it on screen near the edges
+    w.geometry(f'+{min(x, w.winfo_screenwidth() - w.winfo_reqwidth())}+{min(y, w.winfo_screenheight() - w.winfo_reqheight())}')
+    w.grab_set()  # a click anywhere else closes it (no focus for borderless windows on Windows)
+    w.bind('<Button>', lambda e: str(w.winfo_containing(e.x_root, e.y_root)).startswith(str(w)) or w.destroy())
+    w.bind('<Escape>', lambda e: w.destroy())
+    w.focus_set()
 
 
 def dark(root):
-    """Dark look: ttk 'clam' recolored, classic tk widgets via the option database, dark Windows title bar."""
-    s = ttk.Style(root)
-    s.theme_use('clam')
-    s.configure('.', background=BG, foreground=FG, fieldbackground=FIELD, bordercolor=LINE, lightcolor=BG,
-                darkcolor=BG, troughcolor=FIELD, arrowcolor=FG, insertcolor=FG, selectbackground=SEL,
-                selectforeground='white')
-    for style in ('TButton', 'TCombobox'):
-        s.configure(style, background=FIELD, lightcolor=FIELD, darkcolor=FIELD)
-        s.map(style, background=[('disabled', BG), ('pressed', LINE), ('active', LINE)],
-              foreground=[('disabled', DIM)], lightcolor=[('pressed', LINE)], darkcolor=[('pressed', LINE)])
-    s.map('TCombobox', fieldbackground=[('disabled', BG), ('readonly', FIELD)],
-          selectbackground=[('readonly', FIELD)], selectforeground=[('readonly', FG)])
-    s.configure('TNotebook', background=BG, bordercolor=LINE)
-    s.configure('TNotebook.Tab', background=FIELD, foreground=DIM, bordercolor=LINE, lightcolor=FIELD, padding=(14, 4))
-    s.map('TNotebook.Tab', background=[('selected', BG)], foreground=[('selected', FG)], lightcolor=[('selected', BG)])
-    for k, v in {'*Text.background': FIELD, '*Text.foreground': FG, '*Text.insertBackground': FG,
-                 '*Text.selectBackground': SEL, '*Text.relief': 'flat', '*Text.highlightThickness': 1,
-                 '*Text.highlightBackground': LINE, '*Text.highlightColor': SEL,
-                 '*Scale.background': BG, '*Scale.foreground': FG, '*Scale.troughColor': FIELD,
-                 '*Scale.activeBackground': LINE, '*Scale.highlightThickness': 0, '*Button.highlightThickness': 0,
-                 '*TCombobox*Listbox.background': FIELD, '*TCombobox*Listbox.foreground': FG,
-                 '*TCombobox*Listbox.selectBackground': SEL, '*TCombobox*Listbox.selectForeground': 'white'}.items():
+    """Dark look: Sun Valley (Windows 11 style ttk theme), classic tk widgets to match, dark Windows title bar."""
+    if sv_ttk:
+        sv_ttk.set_theme('dark', root)
+        try:
+            orange(root)
+        except (tk.TclError, OSError) as e:  # another sv-ttk version: stays blue
+            log.warning('accent: %s', e)
+    else:
+        ttk.Style(root).theme_use('clam')
+    # no colors in the option database: the theme's tk_setPalette resets every widget whose color matches it
+    for k, v in {'*Button.highlightThickness': 0, '*Listbox.relief': 'flat', '*Listbox.borderWidth': 0,
+                 '*Listbox.activeStyle': 'none', '*TCombobox*Listbox.background': FIELD,
+                 '*TCombobox*Listbox.foreground': FG, '*TCombobox*Listbox.selectBackground': PICK,
+                 '*TCombobox*Listbox.selectForeground': FG, '*TCombobox*Listbox.font': ('Segoe UI', 10)}.items():
         root.option_add(k, v)
+    ttk.Style(root).configure('ComboboxPopdownFrame', bordercolor=LINE, lightcolor=LINE, darkcolor=LINE)
     root.configure(bg=BG)
     if not WIN:  # the title bar belongs to the desktop's own theme there
         return
@@ -928,6 +1037,7 @@ class FxEditor(ttk.Frame):
     def __init__(self, parent, root):
         super().__init__(parent)
         self.root = root
+        self.columnconfigure(0, minsize=LABEL)  # same label column as the layer name above it
         for r, text in enumerate([tr('Effect'), tr('Direction'), tr('Colors'), '', tr('Brightness %'), tr('Speed %')]):
             ttk.Label(self, text=text).grid(row=r, column=0, sticky='w', padx=(0, 12), pady=4)
         self.fx, self.fdir, self.cmode = (ttk.Combobox(self, state='readonly', values=v)
@@ -943,9 +1053,9 @@ class FxEditor(ttk.Frame):
             b.pack(side='left', padx=(0, 6))
         self.bright, self.speed, self.thick = tk.IntVar(), tk.IntVar(), tk.IntVar()
         for r, var in ((4, self.bright), (5, self.speed)):
-            tk.Scale(self, from_=0, to=100, orient='horizontal', length=300, variable=var).grid(row=r, column=1, sticky='w')
+            slider(self, var, 0, 100, 300).grid(row=r, column=1, sticky='w')
         self.thick_lbl = ttk.Label(self, text=tr('Wave width %'))  # Ripple only, shown by fx_widgets()
-        self.thick_scale = tk.Scale(self, from_=0, to=100, orient='horizontal', length=300, variable=self.thick)
+        self.thick_scale = slider(self, self.thick, 0, 100, 300)
         self.rand = tk.BooleanVar()
         self.rand_chk = ttk.Checkbutton(self, text=tr('Random color per drop'), variable=self.rand)
         self.pat_lbl = ttk.Label(self, text=tr('Pattern'))  # Custom only, shown by fx_widgets()
@@ -1056,23 +1166,38 @@ class App:
         # keeps running in the tray like the Stream Deck app; Linux: not every desktop shows a tray, so minimize instead
         root.protocol('WM_DELETE_WINDOW', root.withdraw if WIN else root.iconify)
         self.tray = None
-        nb = ttk.Notebook(root)
-        nb.grid(row=0, column=0, columnspan=2, sticky='nsew', padx=10, pady=(10, 0))
-        tab = ttk.Frame(nb)
-        nb.add(tab, text=tr('Keys'))
+        head = tk.Frame(root, bg=SIDE, padx=16, pady=10)
+        head.grid(row=0, column=0, sticky='we')
+        self.logo = ImageTk.PhotoImage(Image.open(ICON).convert('RGBA').resize((26, 26), Image.Resampling.LANCZOS))
+        tk.Label(head, image=self.logo, bg=SIDE).pack(side='left', padx=(0, 10))
+        tk.Label(head, text='Onyx', font=('Segoe UI Semibold', 15), bg=SIDE, fg=FG, bd=0, padx=0).pack(side='left')
+        tk.Label(head, text='IO', font=('Segoe UI Semibold', 15), bg=SIDE, fg=ORANGE, bd=0, padx=0).pack(side='left')
+        tk.Label(head, text=VERSION, font=('Segoe UI', 9), bg=SIDE, fg=DIM).pack(side='left', anchor='s', padx=8, pady=(0, 3))
+        self.status = tk.Label(head, font=('Segoe UI', 10), bg=SIDE, fg=DIM)
+        self.status.pack(side='right')
+        self.dot = tk.Label(head, text='\u25cf', font=('Segoe UI', 11), bg=SIDE, fg=DIM)
+        self.dot.pack(side='right', padx=(0, 4))
+        root.columnconfigure(0, weight=1)
+        root.rowconfigure(1, weight=1)
+        nb = self.nav = Nav(root)
+        nb.grid(row=1, column=0, sticky='nsew')
+        tab = ttk.Frame(nb, padding=(16, 12))
+        nb.add(tab, tr('Keys'), '\ue765')
         tiles = ttk.Frame(tab, padding=10)
         tiles.grid(row=0, column=0, sticky='n')
         self.tiles = [tk.Button(tiles, bd=3, relief='flat', bg=LINE, command=lambda i=i: self.select(i)) for i in range(8)]
         for i, b in enumerate(self.tiles):
             b.grid(row=i // COLS, column=i % COLS, padx=3, pady=3)
+            b.bind('<Button-3>', lambda e, i=i: self.key_menu(e, i))
+        self.clip = None
         f = ttk.Frame(tiles)
         f.grid(row=2, column=0, columnspan=COLS, pady=(8, 0))
-        ttk.Button(f, text='◀', width=3, command=lambda: self.goto(self.cfg['page'] - 1)).pack(side='left')
+        ttk.Button(f, text='◀', width=3, command=lambda: self.goto(self.cfg['page'] - 1)).pack(side='left', padx=(0, 6))
         self.page_lbl = ttk.Label(f, width=12, anchor='center')
         self.page_lbl.pack(side='left')
-        ttk.Button(f, text='▶', width=3, command=lambda: self.goto(self.cfg['page'] + 1)).pack(side='left')
-        ttk.Button(f, text=tr('New page'), command=self.add_page).pack(side='left', padx=(16, 0))
-        ttk.Button(f, text=tr('Delete page'), command=self.del_page).pack(side='left')
+        ttk.Button(f, text='▶', width=3, command=lambda: self.goto(self.cfg['page'] + 1)).pack(side='left', padx=(6, 0))
+        ttk.Button(f, text=tr('New page'), command=self.add_page).pack(side='left', padx=(16, 6))
+        ttk.Button(f, text=tr('Delete page'), command=self.del_page).pack(side='left', padx=(0, 6))
         f = ttk.Frame(tab, padding=(10, 0))
         f.grid(row=1, column=0, sticky='nsew')
         ttk.Label(f, text=tr('Plugin settings'), foreground=DIM).pack(anchor='w', pady=(0, 4))
@@ -1097,7 +1222,8 @@ class App:
         for r, text in enumerate([tr('Title'), tr('Background'), tr('Image'), tr('Rotate image'), tr('Rotate all'), tr('Action'),
                                   tr('Target / value')], 1):
             ttk.Label(ed, text=text).grid(row=r, column=0, sticky='nw', padx=(0, 8), pady=3)
-        self.title = tk.Text(ed, width=34, height=2, font=('Segoe UI', 10))
+        self.title = tk.Text(ed, width=34, height=2, font=('Segoe UI', 10), bg=FIELD, fg=FG, insertbackground=FG,
+                             relief='flat', highlightthickness=1, highlightbackground=LINE, highlightcolor=ORANGE)
         self.title.grid(row=1, column=1, columnspan=2, sticky='we', pady=3)
         self.title.bind('<KeyRelease>', lambda e: self.preview())
         self.bg_btn = tk.Button(ed, width=6, command=self.pick_bg)
@@ -1105,27 +1231,27 @@ class App:
         self.icon_lbl = ttk.Label(ed, width=20)
         self.icon_lbl.grid(row=3, column=1, sticky='w')
         f = ttk.Frame(ed)
-        f.grid(row=3, column=2, sticky='e')
-        ttk.Button(f, text=tr('Choose …'), command=self.pick_icon).pack(side='left')
-        ttk.Button(f, text=tr('Remove'), command=lambda: (self.set_icon(''), self.preview())).pack(side='left')
+        f.grid(row=3, column=2, sticky='e', pady=3)
+        ttk.Button(f, text=tr('Choose …'), width=10, command=self.pick_icon).pack(side='left', padx=(0, 6))
+        ttk.Button(f, text=tr('Remove'), width=10, command=lambda: (self.set_icon(''), self.preview())).pack(side='left')
         for row, var in ((4, self.rot), (5, self.turn)):
             f = ttk.Frame(ed)
-            f.grid(row=row, column=1, columnspan=2, sticky='w')
-            tk.Scale(f, from_=-180, to=180, orient='horizontal', length=200, variable=var,
-                     command=lambda v, var=var: self.snap(var, int(v))).pack(side='left')
-            for deg, text in ((-90, '⟲ 90°'), (90, '⟳ 90°')):
-                ttk.Button(f, text=text, width=6, command=lambda v=var, d=deg: self.step(v, d)).pack(side='left', anchor='s')
+            f.grid(row=row, column=1, columnspan=2, sticky='we', pady=3)
+            slider(f, var, -180, 180, 150, lambda v, var=var: self.snap(var, v)).pack(side='left')
+            for deg, text in ((90, '⟳ 90°'), (-90, '⟲ 90°')):  # from the right: flush with "Remove" above
+                ttk.Button(f, text=text, width=10, command=lambda v=var, d=deg: self.step(v, d)).pack(  # as wide as the two above
+                    side='right', padx=(6, 0))
         self.action = ttk.Combobox(ed, state='readonly', values=list(self.choices), height=24)
         self.action.grid(row=6, column=1, columnspan=2, sticky='we', pady=3)
         self.action.bind('<<ComboboxSelected>>', lambda e: (self.val.set(''), self.update_value_widget(), self.preview()))
         self.value = ttk.Combobox(ed, textvariable=self.val)
         self.value.grid(row=7, column=1, columnspan=2, sticky='we', pady=3)
         f = ttk.Frame(ed)
-        f.grid(row=8, column=1, columnspan=2, sticky='w')
+        f.grid(row=8, column=1, columnspan=2, sticky='w', pady=(4, 0))
         self.browse = [ttk.Button(f, text=tr('File …'), command=lambda: self.pick_target(filedialog.askopenfilename)),
                        ttk.Button(f, text=tr('Folder …'), command=lambda: self.pick_target(filedialog.askdirectory))]
         for b in self.browse:
-            b.pack(side='left')
+            b.pack(side='left', padx=(0, 6))
         self.hint = ttk.Label(ed, foreground='gray')
         self.hint.grid(row=9, column=1, columnspan=2, sticky='w')
         self.kdock = tk.BooleanVar()
@@ -1140,28 +1266,36 @@ class App:
         self.build_keys(nb)
         self.build_macros(nb)
         self.build_dock(nb)
-        self.status = ttk.Label(root, padding=(10, 0))
-        self.status.grid(row=1, column=0, sticky='w', pady=10)
-        f = ttk.Frame(root)
-        f.grid(row=1, column=1, sticky='e', padx=10, pady=10)
-        lay = ttk.Combobox(f, state='readonly', values=list(LAYOUTNAMES.values()), width=12)
+        f = ttk.Frame(nb)
+        nb.add(f, tr('Settings'), '')
+        nb.item(tr('Quit'), '', root.destroy, bottom=True)
+        tk.Label(nb.side, text='created by Möpchi', font=('Segoe UI', 8), bg=SIDE, fg=DIM).pack(side='bottom', pady=(0, 10))
+        link = tk.Label(nb.side, text='GitHub ↗', font=('Segoe UI', 9), bg=SIDE, fg=DIM, cursor='hand2')
+        link.pack(side='bottom')
+        link.bind('<Button-1>', lambda e: webbrowser.open(f'https://github.com/{REPO}'))
+        link.bind('<Enter>', lambda e: link.config(fg=ORANGE))
+        link.bind('<Leave>', lambda e: link.config(fg=DIM))
+        for r, text in enumerate([tr('Keyboard layout'), tr('Language')], 1):
+            ttk.Label(f, text=text).grid(row=r, column=0, sticky='w', padx=(0, 32), pady=6)
+        lay = ttk.Combobox(f, state='readonly', values=list(LAYOUTNAMES.values()), width=18)
         lay.set(LAYOUTNAMES[self.cfg['layout']])
         lay.bind('<<ComboboxSelected>>', lambda e: self.set_layout(list(LAYOUTNAMES)[lay.current()]))
-        lay.pack(side='left', padx=(0, 8))
-        box = ttk.Combobox(f, state='readonly', values=list(LANGS.values()), width=9)
+        lay.grid(row=1, column=1, sticky='w', pady=4)
+        box = ttk.Combobox(f, state='readonly', values=list(LANGS.values()), width=18)
         box.set(LANGS[lang.LANG])
         box.bind('<<ComboboxSelected>>', lambda e: self.set_lang(list(LANGS)[box.current()]))
-        box.pack(side='left', padx=(0, 8))
-        self.bar, self.laybox, self.upd_shown = f, lay, False
+        box.grid(row=2, column=1, sticky='w', pady=4)
+        self.bar, self.upd_shown = head, False  # the update hint goes into the header
         self.upd = tk.BooleanVar(value=self.cfg.get('updates', False))  # opt-in: off, OnyxIO sends nothing anywhere
-        ttk.Checkbutton(f, text=tr('Check for updates'), variable=self.upd, command=self.set_updates).pack(
-            side='left', padx=(0, 12), before=box)
+        ttk.Checkbutton(f, text=tr('Check for updates'), variable=self.upd, command=self.set_updates,
+                        style='Switch.TCheckbutton' if sv_ttk else 'TCheckbutton').grid(row=3, column=0, columnspan=2, sticky='w', pady=(20, 6))
         if autostart(None, 'DarkMountDeck'):  # ponytail: moves the pre-rename (<= 1.4) entry, drop after a few releases
             autostart(False, 'DarkMountDeck'), autostart(True)
         self.auto = tk.BooleanVar(value=autostart())
         ttk.Checkbutton(f, text=tr('Start with Windows') if WIN else tr('Start at login'), variable=self.auto,
-                        command=lambda: autostart(self.auto.get())).pack(side='left', padx=(0, 12), before=box)
-        ttk.Button(f, text=tr('Quit'), command=root.destroy).pack(side='left')
+                        command=lambda: autostart(self.auto.get()),
+                        style='Switch.TCheckbutton' if sv_ttk else 'TCheckbutton').grid(row=4, column=0, columnspan=2, sticky='w', pady=6)
+        nb.select(0)
         self.dev = Device(lambda i: render(self.look(self.keys[i])), self.on_key)
         self.dev.on_dock = lambda step: step and self.cfg['dock']['pages'] and self.ui.put(
             lambda: self.goto(self.cfg['page'] + step))
@@ -1188,7 +1322,7 @@ class App:
     # time, page name and now playing are sent live by Device.dock_sync
     def build_dock(self, nb):
         t = ttk.Frame(nb, padding=10)
-        nb.add(t, text='Media Dock')
+        nb.add(t, 'Media Dock', '\ue8d6')
         d, ed = self.cfg['dock'], ttk.Frame(t)
         ed.grid(row=0, column=0, sticky='nw')
         for r, text in enumerate([tr('Accent color'), tr('Clock'), tr('Idle screen'), tr('Show idle screen after'),
@@ -1201,12 +1335,12 @@ class App:
         self.dk_after = ttk.Spinbox(ed, from_=5, to=3600, increment=5, width=8)
         self.dk_off = ttk.Spinbox(ed, from_=0, to=3600, increment=10, width=8)
         for r, w in enumerate((self.dk_clock, self.dk_saver, self.dk_after, self.dk_off), 1):
-            w.grid(row=r, column=1, sticky='w', pady=4)
-        ttk.Label(ed, text='s').grid(row=3, column=2, sticky='w')
-        ttk.Label(ed, text=tr('s (0 = never)')).grid(row=4, column=2, sticky='w')
+            w.grid(row=r, column=1, sticky='we', pady=4)
+        ttk.Label(ed, text='s').grid(row=3, column=2, sticky='w', padx=8)
+        ttk.Label(ed, text=tr('s (0 = never)')).grid(row=4, column=2, sticky='w', padx=8)
         f = ttk.Frame(ed)
-        f.grid(row=5, column=1, columnspan=2, sticky='w')
-        ttk.Button(f, text=tr('Choose …'), command=self.pick_dock_image).pack(side='left')
+        f.grid(row=5, column=1, columnspan=2, sticky='w', pady=4)
+        ttk.Button(f, text=tr('Choose …'), command=self.pick_dock_image).pack(side='left', padx=(0, 6))
         ttk.Button(f, text=tr('Remove'), command=lambda: self.set_dock_image('')).pack(side='left')
         self.dk_img = tk.Label(ed, bg=FIELD)
         self.dk_img.grid(row=6, column=1, columnspan=2, sticky='w', pady=4)
@@ -1283,7 +1417,7 @@ class App:
     # --- layers: OnyxIO draws every LED in realtime mode while it runs, the keyboard falls back to the general effect ---
     def build_keys(self, nb):
         t = ttk.Frame(nb, padding=10)
-        nb.add(t, text=tr('Lighting'))
+        nb.add(t, tr('Lighting'), '\ue82f')
         self.cal, self.newmap, self.lsel = None, {}, None  # LED walk position, its map, selected layer index
         self.layers = self.cfg.setdefault('layers', [])
         self.pv_on = tk.BooleanVar(value=self.cfg.get('preview', True))  # the live preview: the effect, animated, in the app
@@ -1309,22 +1443,24 @@ class App:
         self.khint.grid(row=2, column=0, columnspan=2, sticky='w', pady=(8, 0))
         left = ttk.Frame(t)
         left.grid(row=3, column=0, sticky='nw', pady=(12, 0), padx=(0, 24))
-        self.llist = tk.Listbox(left, width=28, height=8, bg=FIELD, fg=FG, selectbackground=SEL, highlightthickness=0,
+        self.llist = tk.Listbox(left, width=28, height=8, bg=FIELD, fg=FG, selectbackground=PICK, highlightthickness=0,
                                 relief='flat', exportselection=False, activestyle='none')
         self.llist.grid(row=0, column=0, columnspan=4, sticky='we')
         self.llist.bind('<<ListboxSelect>>', lambda e: self.select_layer(next(iter(self.llist.curselection()), None)))
         for j, (text, cmd) in enumerate((('+', self.add_layer), ('−', self.del_layer),
                                          ('↑', lambda: self.move_layer(-1)), ('↓', lambda: self.move_layer(1)))):
-            ttk.Button(left, text=text, width=4, command=cmd).grid(row=1, column=j, sticky='w', pady=(6, 0))
+            ttk.Button(left, text=text, width=4, command=cmd).grid(row=1, column=j, sticky='w', padx=(0, 6), pady=(6, 0))
         ttk.Label(left, foreground='gray', text=tr('The top one wins, the base effect fills the rest.')).grid(
             row=2, column=0, columnspan=4, sticky='w')
         self.ledit = ttk.Frame(t)
         self.ledit.grid(row=3, column=1, sticky='nw', pady=(12, 0))
         ttk.Label(self.ledit, text='Name').grid(row=0, column=0, sticky='w', padx=(0, 12), pady=4)
-        self.lname = ttk.Entry(self.ledit, width=30)
-        self.lname.grid(row=0, column=1, sticky='w', pady=4)
+        self.ledit.columnconfigure(0, minsize=LABEL)
+        self.ledit.columnconfigure(1, weight=1)  # the effect editor's extra width goes to the fields, not the labels
+        self.lname = ttk.Entry(self.ledit)
+        self.lname.grid(row=0, column=1, sticky='we', pady=4)
         self.layer_ed = FxEditor(self.ledit, self.root)
-        self.layer_ed.grid(row=1, column=0, columnspan=2, sticky='w')
+        self.layer_ed.grid(row=1, column=0, columnspan=2, sticky='we')
         ttk.Button(self.ledit, text=tr('Apply'), command=self.apply_layer).grid(row=2, column=1, sticky='e', pady=(12, 0))
         self.mini_photos = [None] * 8  # the display keys above the numpad, as in the "Tasten" tab; click = edit there
         for i in range(8):
@@ -1602,61 +1738,63 @@ class App:
     # --- macros: stored on the keyboard like IO Center does, played by the keyboard itself, bound to keys there ------
     def build_macros(self, nb):
         t = ttk.Frame(nb, padding=10)
-        nb.add(t, text=tr('Macros'))
+        nb.add(t, tr('Macros'), '\ue7c8')
         self.macros, self.mbind, self.msel, self.steps, self.rec = [], {}, None, [], None
         left = ttk.Frame(t)
         left.grid(row=0, column=0, sticky='nw', padx=(0, 24))
-        self.mlist = tk.Listbox(left, width=28, height=14, bg=FIELD, fg=FG, selectbackground=SEL, highlightthickness=0,
+        self.mlist = tk.Listbox(left, width=28, height=14, bg=FIELD, fg=FG, selectbackground=PICK, highlightthickness=0,
                                 relief='flat', exportselection=False, activestyle='none')
         self.mlist.grid(row=0, column=0, columnspan=3, sticky='we')
         self.mlist.bind('<<ListboxSelect>>', lambda e: self.select_macro(next(iter(self.mlist.curselection()), None)))
         for j, (text, cmd) in enumerate((('+', self.add_macro), ('−', self.del_macro), (tr('Reload'), self.load_macros))):
-            ttk.Button(left, text=text, width=4 if j < 2 else 10, command=cmd).grid(row=1, column=j, sticky='w',
+            ttk.Button(left, text=text, width=4 if j < 2 else 10, command=cmd).grid(row=1, column=j, sticky='w', padx=(0, 6),
                                                                                    pady=(6, 0))
         self.medit = ed = ttk.Frame(t)
         ed.grid(row=0, column=1, sticky='nw')
         for r, text in enumerate(['Name', tr('Playback'), tr('Delays'), tr('Steps'), '', tr('Keys')]):
-            ttk.Label(ed, text=text).grid(row=r, column=0, sticky='nw', padx=(0, 12), pady=4)
-        self.mname = ttk.Entry(ed, width=30)
-        self.mname.grid(row=0, column=1, sticky='w', pady=4)
-        self.mmode = ttk.Combobox(ed, state='readonly', values=MODES, width=28)
-        self.mmode.grid(row=1, column=1, sticky='w', pady=4)
+            ttk.Label(ed, text=text).grid(row=r, column=0, sticky='nw' if r == 3 else 'w', padx=(0, 16), pady=(10, 4) if r == 3 else 4)
+        ed.columnconfigure(1, weight=1)
+        self.mname = ttk.Entry(ed)
+        self.mname.grid(row=0, column=1, sticky='we', pady=4)
+        self.mmode = ttk.Combobox(ed, state='readonly', values=MODES)
+        self.mmode.grid(row=1, column=1, sticky='we', pady=4)
         f = ttk.Frame(ed)
-        f.grid(row=2, column=1, sticky='w', pady=4)
-        self.mdelay = ttk.Combobox(f, state='readonly', values=DELAYS, width=16)
+        f.grid(row=2, column=1, sticky='we', pady=4)
+        self.mdelay = ttk.Combobox(f, state='readonly', values=DELAYS, width=18)
         self.mdelay.pack(side='left')
         self.mms = ttk.Spinbox(f, from_=0, to=65535, increment=10, width=7)
         self.mms.pack(side='left', padx=6)
         ttk.Label(f, text=tr('ms (with “Fixed”)')).pack(side='left')
-        f = ttk.Frame(ed)
-        f.grid(row=3, column=1, sticky='w', pady=4)
-        self.slist = tk.Listbox(f, width=36, height=12, bg=FIELD, fg=FG, selectbackground=SEL, highlightthickness=0,
-                                relief='flat', exportselection=False, activestyle='none', selectmode='extended')
-        self.slist.pack(side='left')
-        self.slist.bind('<<ListboxSelect>>', lambda e: self.show_step_delay())
-        side = ttk.Frame(f)
-        side.pack(side='left', anchor='n', padx=6)
-        self.rec_btn = ttk.Button(side, text=tr('● Record'), command=self.toggle_record)
-        self.rec_btn.pack(fill='x')
-        self.recwhat = ttk.Combobox(side, state='readonly', values=RECORD, width=14)
+        f = ttk.Frame(ed)  # steps: record bar, list, edit bar
+        f.grid(row=3, column=1, sticky='we', pady=4)
+        bar = ttk.Frame(f)
+        bar.pack(fill='x')
+        self.rec_btn = ttk.Button(bar, text=tr('● Record'), command=self.toggle_record, style='Accent.TButton')
+        self.rec_btn.pack(side='left')
+        self.recwhat = ttk.Combobox(bar, state='readonly', values=RECORD, width=14)
         self.recwhat.current(0)
-        self.recwhat.pack(fill='x', pady=(6, 0))
-        for text, cmd in ((tr('Remove'), self.del_steps), ('↑', lambda: self.move_step(-1)),
-                          ('↓', lambda: self.move_step(1))):
-            ttk.Button(side, text=text, command=cmd).pack(fill='x', pady=(6, 0))
-        ttk.Label(side, text=tr('Delay after (ms)')).pack(anchor='w', pady=(12, 0))
-        self.sms = ttk.Spinbox(side, from_=0, to=65535, increment=10, width=8)
-        self.sms.pack(anchor='w')
-        ttk.Button(side, text=tr('Set'), command=self.set_step_delay).pack(fill='x', pady=(6, 0))
+        self.recwhat.pack(side='left', padx=6)
+        self.slist = tk.Listbox(f, width=60, height=12, bg=FIELD, fg=FG, selectbackground=PICK, highlightthickness=0,
+                                relief='flat', exportselection=False, activestyle='none', selectmode='extended')
+        self.slist.pack(fill='x', pady=6)
+        self.slist.bind('<<ListboxSelect>>', lambda e: self.show_step_delay())
+        bar = ttk.Frame(f)
+        bar.pack(fill='x')
+        for text, cmd in ((tr('Remove'), self.del_steps), ('↑', lambda: self.move_step(-1)), ('↓', lambda: self.move_step(1))):
+            ttk.Button(bar, text=text, width=None if len(text) > 1 else 3, command=cmd).pack(side='left', padx=(0, 6))
+        ttk.Button(bar, text=tr('Set'), command=self.set_step_delay).pack(side='right')
+        self.sms = ttk.Spinbox(bar, from_=0, to=65535, increment=10, width=7)
+        self.sms.pack(side='right', padx=6)
+        ttk.Label(bar, text=tr('Delay after (ms)')).pack(side='right')
         self.mhint = ttk.Label(ed, foreground='gray', text=HINT)
         self.mhint.grid(row=4, column=1, sticky='w')
         f = ttk.Frame(ed)
-        f.grid(row=5, column=1, sticky='w', pady=4)
-        self.mkeys = ttk.Label(f, width=30)
+        f.grid(row=5, column=1, sticky='we', pady=4)
+        self.mkeys = ttk.Label(f)
         self.mkeys.pack(side='left')
+        ttk.Button(f, text=tr('Unbind'), command=self.unbind_macro).pack(side='right')
         self.bind_btn = ttk.Button(f, text=tr('Assign key …'), command=self.pick_macro_key)
-        self.bind_btn.pack(side='left')
-        ttk.Button(f, text=tr('Unbind'), command=self.unbind_macro).pack(side='left', padx=(6, 0))
+        self.bind_btn.pack(side='right', padx=6)
         ttk.Button(ed, text=tr('Apply'), command=self.apply_macro).grid(row=6, column=1, sticky='e', pady=(12, 0))
         ttk.Label(t, foreground='gray', wraplength=760, justify='left', text=tr(
             'Macros live on the keyboard and run there even without this program, like with IO Center. OnyxIO reads '
@@ -1904,7 +2042,7 @@ class App:
         self.update_value_widget()
         self.val.set('' if a == 'plugin' else tr(k.get('value', '')) if a == 'media' else k.get('value', ''))
         for j, t in enumerate(self.tiles):
-            t.config(bg=SEL if j == i else LINE, activebackground=SEL if j == i else LINE)  # frame = selection
+            t.config(bg=ORANGE if j == i else LINE, activebackground=ORANGE if j == i else LINE)  # frame = selection
         self.preview()
         self.pi_show()
 
@@ -1931,6 +2069,34 @@ class App:
             k['context'] = old['context'] if same else uuid.uuid4().hex
             k['settings'] = old.get('settings', {}) if same else {}
         return k
+
+    def key_menu(self, e, i):  # right click on a display key
+        popup(self.root, e.x_root, e.y_root, [
+            (tr('Edit'), '', lambda: self.select(i)), None,
+            (tr('Copy'), '', lambda: setattr(self, 'clip', json.loads(json.dumps(self.keys[i])))),
+            (tr('Paste'), '', self.clip and (lambda: self.put_key(  # a plugin copy is its own instance
+                i, {**self.clip, **({'context': uuid.uuid4().hex} if 'context' in self.clip else {})}))),
+            (tr('Swap with next key'), '', lambda: self.swap_keys(i, (i + 1) % 8)), None,
+            (tr('Clear'), '', lambda: self.put_key(i, {'title': ''}))])
+
+    def put_key(self, i, k):  # replace key i from outside the editor (menu); the editor shows it if selected
+        old, self.keys[i] = self.keys[i], k
+        save(self.cfg)
+        if old.get('action') == 'plugin' and old.get('context') != k.get('context'):
+            self.host.disappear(i, old)
+        if k.get('action') == 'plugin' and old.get('context') != k.get('context'):
+            self.host.appear(i)
+        self.dev.dirty.put((i, True))
+        self.draw_tile(i)
+        self.show_page()
+        if i == self.sel:
+            self.select(i)
+
+    def swap_keys(self, i, j):
+        a, b = self.keys[i], self.keys[j]
+        self.put_key(i, {'title': ''})  # through blank: each plugin instance disappears once and appears at its new key
+        self.put_key(j, a)
+        self.put_key(i, b)
 
     def apply(self):
         k = self.current()
@@ -1979,7 +2145,7 @@ class App:
             if not self.upd_shown:
                 self.upd_shown = True
                 ttk.Button(self.bar, text=tr('Update {v} available', v=tag), command=lambda: webbrowser.open(
-                    f'https://github.com/{REPO}/releases/latest')).pack(side='left', padx=(0, 8), before=self.laybox)
+                    f'https://github.com/{REPO}/releases/latest')).pack(side='right', padx=(0, 16), before=self.dot)
         if self.cfg.get('updates'):
             threading.Thread(target=lambda: (t := newer_release()) and self.ui.put(lambda: hint(t)), daemon=True).start()
 
@@ -2045,7 +2211,7 @@ class App:
                 return ''
             self.tree_imgs.append(im)
             return im
-        ttk.Style(self.root).configure('Treeview', background=FIELD, fieldbackground=FIELD, rowheight=22)
+        ttk.Style(self.root).configure('Treeview', rowheight=22)  # colors from the theme
         g = t.insert('', 'end', text=' OnyxIO', open=True)
         for a, (label, _) in ACTIONS.items():
             if a != 'none':
@@ -2215,6 +2381,8 @@ class App:
                 self.dev.dirty.put((i, False))
                 self.preview() if i == self.sel else self.draw_tile(i)
         self.status.config(text=tr('Keyboard: {state}', state=self.dev.state))
+        on = self.dev.state.startswith(tr('connected'))
+        self.dot.config(fg=DIM if not on else ORANGE if tr('error') in self.dev.state else '#3fb950')  # green / trouble / offline
         self.root.after(100, self.poll)
 
 

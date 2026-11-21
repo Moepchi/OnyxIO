@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import re
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_data_files
 from PyInstaller.utils.win32.versioninfo import (FixedFileInfo, StringFileInfo, StringStruct, StringTable,
                                                  VarFileInfo, VarStruct, VSVersionInfo)
 
@@ -16,7 +16,7 @@ version = VSVersionInfo(
         'LegalCopyright': 'MIT License'}.items()])]),
           VarFileInfo([VarStruct('Translation', [0x0409, 1200])])])
 
-datas = [('icon.ico', '.')]
+datas = [('icon.ico', '.')] + collect_data_files('sv_ttk')  # the theme's .tcl files and images
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('winrt')
