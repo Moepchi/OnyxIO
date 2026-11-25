@@ -17,7 +17,7 @@ import darkmount as dm
 import lang, sdhost
 from lang import LANGS, tr
 
-VERSION = '1.7.0'  # raise together with the release tag, the update hint compares against it
+VERSION = '1.8.0'  # raise together with the release tag, the update hint compares against it
 REPO = 'Moepchi/OnyxIO'
 WIN = sys.platform == 'win32'  # everything else is treated as Linux
 FONT = 'arialbd.ttf' if WIN else 'DejaVuSans-Bold.ttf'  # Pillow finds both by name in the system font folders
@@ -1301,6 +1301,9 @@ class App:
         tk.Label(head, text='Onyx', font=('Segoe UI Semibold', 15), bg=SIDE, fg=FG, bd=0, padx=0).pack(side='left')
         tk.Label(head, text='IO', font=('Segoe UI Semibold', 15), bg=SIDE, fg=ORANGE, bd=0, padx=0).pack(side='left')
         tk.Label(head, text=VERSION, font=('Segoe UI', 9), bg=SIDE, fg=DIM).pack(side='left', anchor='s', padx=8, pady=(0, 3))
+        if light_mount():
+            tk.Label(head, text=tr('Light Mount – experimental'), font=('Segoe UI', 9), bg=SIDE, fg=ORANGE).pack(
+                side='left', anchor='s', pady=(0, 3))
         self.status = tk.Label(head, font=('Segoe UI', 10), bg=SIDE, fg=DIM)
         self.status.pack(side='right')
         self.dot = tk.Label(head, text='\u25cf', font=('Segoe UI', 11), bg=SIDE, fg=DIM)

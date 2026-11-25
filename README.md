@@ -16,6 +16,9 @@
 *Formerly Dark Mount Deck.* A lean, open replacement for IO Center for the **be quiet! Dark Mount** keyboard on Windows (Linux experimental): the eight display keys
 work like a Stream Deck, plus lighting and macros. One Python program, no installer, no account, no telemetry.
 
+**Light Mount (experimental):** lighting (effects, layers, reactive keys) and macros on M1–M5 work, tested remotely
+by one user so far. No display keys or Media Dock on that board. Reports welcome as GitHub issues.
+
 **[Deutsch weiter unten](#deutsch)**
 
 ![Keys tab](docs/keys.png)
@@ -89,7 +92,7 @@ Windows SmartScreen may warn because the file is not signed: *More info → Run 
 Actions straight from the tagged source – see the **[Code signing policy](https://github.com/Moepchi/OnyxIO/wiki/Code-signing-policy)**.
 
 ## Requirements (running from source)
-- Windows 10 / 11, be quiet! Dark Mount
+- Windows 10 / 11, be quiet! Dark Mount (Light Mount experimental)
 - Python 3.10+, Pillow, pystray, sv-ttk (the look) and the `winrt` packages for the Media Dock (`pip install -r requirements.txt`)
 - Optional: Node.js (for Node plugins), Microsoft Edge (for HTML plugins and plugin settings, preinstalled on Windows)
 
@@ -145,6 +148,10 @@ MIT – see [LICENSE](LICENSE). Stream Deck plugins keep their own licenses. "be
 *Früher Dark Mount Deck.* Ein schlanker, offener Ersatz für IO Center für die **be quiet! Dark Mount** unter Windows (Linux experimentell): Die acht Displaytasten
 funktionieren wie ein Stream Deck, dazu Beleuchtung und Makros. Ein Python-Programm, kein Installer, kein Konto,
 keine Telemetrie.
+
+**Light Mount (experimentell):** Beleuchtung (Effekte, Ebenen, reaktive Tasten) und Makros auf M1–M5 laufen, bisher
+von einem Nutzer aus der Ferne getestet. Displaytasten und Media Dock gibt es dort nicht. Rückmeldungen gern als
+GitHub-Issue.
 
 > Inoffizielles Community-Projekt, nicht verbunden mit be quiet! oder Elgato. Es spricht mit der Tastatur nur über
 > dasselbe Konfigurationsprotokoll wie IO Center. Es flasht nie Firmware und rührt den Bootloader nicht an.
@@ -210,7 +217,7 @@ Windows SmartScreen kann warnen, weil die Datei nicht signiert ist: *Weitere Inf
 exe baut GitHub Actions direkt aus dem getaggten Quellcode – siehe die **[Code signing policy](https://github.com/Moepchi/OnyxIO/wiki/Code-signing-policy#richtlinie-zur-code-signatur-deutsch)**.
 
 ## Voraussetzungen (aus dem Quellcode)
-- Windows 10 / 11, be quiet! Dark Mount
+- Windows 10 / 11, be quiet! Dark Mount (Light Mount experimentell)
 - Python 3.10+, Pillow, pystray, sv-ttk (die Optik) und die `winrt`-Pakete fürs Media Dock (`pip install -r requirements.txt`)
 - Optional: Node.js (für Node-Plugins), Microsoft Edge (für HTML-Plugins und Plugin-Einstellungen, bei Windows dabei)
 

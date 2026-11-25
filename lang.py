@@ -127,6 +127,7 @@ DE = {
     'connected, error on key {n}: {e}': 'verbunden, Fehler bei Taste {n}: {e}',
     'disconnected ({why}), retrying …': 'getrennt ({why}), neuer Versuch …',
     'no answer': 'keine Antwort',
+    'Light Mount – experimental': 'Light Mount – experimentell',
     'no answer – unplug the keyboard and plug it back in': 'keine Antwort – Tastatur einmal ab- und wieder anstecken',
     'busy – is IO Center running?': 'belegt, läuft IO Center?',
     'Dark Mount (MI_02) not found': 'Dark Mount (MI_02) nicht gefunden',
