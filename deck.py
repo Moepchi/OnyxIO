@@ -3,7 +3,7 @@
 Start: pythonw deck.py [--min]   (IO Center must not run: the keyboard allows only one session)
 Config: deck.json next to this file, edited in the window. Plugin log: deck.log. Self-check: python deck.py test
 """
-import ast, ctypes, ctypes.wintypes as W, io, json, logging, math, os, queue, random, shlex, struct, subprocess, sys, threading, time, uuid, webbrowser, zipfile, zlib
+import ast, ctypes, ctypes.wintypes as W, functools, io, json, logging, math, os, queue, random, shlex, struct, subprocess, sys, threading, time, uuid, webbrowser, zipfile, zlib
 import tkinter as tk
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -37,10 +37,16 @@ ACTIONS = {  # id: (label, hint)
     'text': (tr('Type text'), tr('typed at the cursor position')),
     'media': (tr('Media / volume'), ''),
     'cmd': (tr('Run command'), tr('e.g. powershell -File C:\\scripts\\x.ps1')),
+    'multi': (tr('Multi action'), tr('several actions one after another – steps below')),
+    'folder': (tr('Folder'), tr('8 keys of its own; double-click opens it here')),
+    'back': (tr('Back (leave folder)'), ''),
     'page_prev': (tr('Previous page'), tr('the last one comes before the first')),
     'page_next': (tr('Next page'), tr('after the last one comes the first again')),
 }
 PAGE = ('page_prev', 'page_next')
+NAV = (*PAGE, 'folder', 'back')  # act on release and have nothing to fill in
+STEPS = {**{a: ACTIONS[a][0] for a in ('open', 'url', 'hotkey', 'text', 'media', 'cmd')}, 'wait': tr('Wait (ms)')}  # multi action
+AUTO = {'folder': f'{tr("Folder")}\n►', 'back': f'◄\n{tr("Back")}', 'multi': f'►►\n{tr("Multi")}'}  # title while none is set
 PI_FLAGS = ['--no-first-run', '--no-default-browser-check', '--disable-sync', '--inprivate',
               '--disable-features=msImplicitSignin,msEdgeSyncConsent,msSignInInterception']  # embedded plugin settings: no sign-in or sync dialogs
 
@@ -160,6 +166,9 @@ LAYOUTNAMES = {'DE': 'Deutsch (ISO)', 'US': 'US (ANSI)', 'UK': 'UK (ISO)'}
 def build_layout(name):  # (re)build the board globals for the chosen layout; called at start and reused by the tests
     global KEYS, KEYNAMES, KEYPOS
     KEYS = [k for y, x, spec in LAYOUTS[name] for k in _row(y, x, spec)]
+    if LM:  # Light Mount: numpad 1.75 units closer, Dial + M1-M5 in a column left of the board
+        KEYS = [(n, lb, x - 1.75 if x >= 20 else x, y, w) for n, lb, x, y, w in KEYS] + [
+            ('Key_Dial', '◎', -1.25, 0, 1), *((f'Key_M{i}', f'M{i}', -1.25, i + .25, 1) for i in range(1, 6))]
     KEYNAMES = list(dict.fromkeys(k[0] for k in KEYS))
     KEYPOS = {n: (x + w / 2, y + .5) for n, _, x, y, w in reversed(KEYS)}  # reversed: a key's first part wins
 
@@ -172,6 +181,7 @@ def _pick_layout():  # deck.json "layout" picks the board; tests and anything un
     return v if v in LAYOUTS else 'DE'
 
 
+LM = False  # board globals describe a Light Mount, see use_light_mount
 LAYOUT = 'DE' if sys.argv[1:2] == ['test'] else _pick_layout()
 build_layout(LAYOUT)
 # Edge LEDs: the ids IO Center streams for its edge layer (keyboard top/bottom/left, numpad top/bottom/right).
@@ -230,6 +240,50 @@ def _frame_names():
 
 
 FRAMELEDS = _frame_names()
+# Light Mount, from IO Center's manifest: key LEDs 45-157 in this order (_ = none), the top edge 0-44 left to right,
+# IO Center also lists side edges (158-167), which this keyboard does not have. The map is fixed, no calibration.
+LM_KEYS = ('Dial Escape F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 PrintScreen ScrollLock PauseBreak M1 GraveAccentAndTilde '
+           '1 2 3 4 5 6 7 8 9 0 MinusAndUnderscore EqualsAndPlus Backspace Insert Home PageUp NumLock NumpadSlash '
+           'NumpadAsterisk NumpadMinus M2 Tab Q W E R T Y U I O P BracketLeft BracketRight Backslash Delete End PageDown '
+           'Numpad7 Numpad8 Numpad9 NumpadPlus M3 CapsLock A S D F G H J K L SemicolonAndColon ApostropheAndDoubleQuote '
+           'NonUsTilde Enter Numpad4 Numpad5 Numpad6 M4 LeftShift NonUsBackslash Z X C V B N M CommaAndLessThan '
+           'PeriodAndBiggerThan SlashAndQuestionMark _ RightShift UpArrow Numpad1 Numpad2 Numpad3 NumpadEnter M5 LeftCtrl '
+           'LeftGui LeftAlt Space RightAlt RightGui Fn RightCtrl LeftArrow DownArrow RightArrow Numpad0 '
+           'NumpadPeriodAndDelete').split()
+LM_KEYMAP = {'Key_' + n: 45 + i for i, n in enumerate(LM_KEYS) if n != '_'}
+# Light Mount M1-M5: binding ids 2-6 and their factory media action (GetBindings: PlayPause, Next, Prev, Stop, MicMute)
+LM_MEDIA = dict(zip(range(2, 7), (7, 5, 6, 8, 4)))
+
+
+def use_light_mount():  # rebind the board globals to the Light Mount; positions in key units from IO Center's picture
+    global LM, FRAMES, M, MT, FRAME_BOX, KEY_LEDS, ALL_LEDS, KB_W, KB_H, CENTER, FRAMEPOS, FRAMELEDS
+    LM = True
+    build_layout(LAYOUT)
+    unit = lambda px: (px - 118) / 44  # IO Center draws 44 px per key unit, Esc's left edge at 118
+    FRAMELEDS = {f'Led_KeyboardTop{i + 1}': i for i in range(45)}
+    FRAMEPOS = {i: (unit(56 + i * 23.66), -.42) for i in range(45)}
+    FRAMES = {'Frame_Keyboard': tuple(sorted(FRAMEPOS))}
+    M, MT, FRAME_BOX = 1.7, .75, {}
+    KEY_LEDS, ALL_LEDS, CENTER = sorted(LM_KEYMAP.values()), 168, (10.6, 3.1)
+    KB_W, KB_H = 2 * PAD + (22.5 + .3 + M) * U, 2 * PADY + (6.25 + .3 + MT) * U
+
+
+try:  # deck.json "device": which keyboard to drive when several are plugged in (header dropdown)
+    dm.PREFER = json.loads(CFG.read_text('utf-8')).get('device')
+except (OSError, ValueError):
+    pass
+
+
+@functools.cache
+def light_mount():  # ponytail: looked up once at start; a Light Mount plugged in later needs an OnyxIO restart
+    try:
+        return dm.find_path()[1] == 0x0002
+    except OSError:
+        return False
+
+
+if sys.argv[1:2] != ['test'] and light_mount():
+    use_light_mount()
 # IO Center key name -> USB HID usage, which is what macro events store (checked: Numpad4 = 0x5c)
 HID = {**{f'Key_{chr(65 + i)}': 4 + i for i in range(26)}, **{f'Key_{(i + 1) % 10}': 0x1E + i for i in range(10)},
        **{'Key_' + n: c for c, n in enumerate((
@@ -244,6 +298,15 @@ HID = {**{f'Key_{chr(65 + i)}': 4 + i for i in range(26)}, **{f'Key_{(i + 1) % 1
 HIDNAME = {c: n for n, c in HID.items()}
 HINT = tr('Recording appends at the end. Several steps: Shift/Ctrl-click.')
 MODES, DELAYS = [tr('Once'), tr('Hold (while pressed)'), tr('Repeat')], [tr('None'), tr('Fixed'), tr('As recorded')]
+
+
+def lm_binds(b):  # Light Mount GetBindings [offset u16] -> [count u16][id u16][action][data] -> {key id: macro id}
+    out, i = {}, 2  # media 02 + 1 byte, macro 0a + u16 (as in SetBinding); ponytail: first page only, 5 M keys fit
+    while i + 3 < len(b) and b[i + 2] in (2, 0x0A):
+        if b[i + 2] == 0x0A:
+            out[int.from_bytes(b[i:i + 2], 'little')] = int.from_bytes(b[i + 3:i + 5], 'little')
+        i += 4 if b[i + 2] == 2 else 5
+    return out
 
 
 def keylabel(name):
@@ -519,6 +582,25 @@ def run_action(k):
         press([MEDIA[v]])
     elif a == 'cmd':
         subprocess.Popen(v, shell=True, creationflags=sdhost.NOWIN)
+    elif a == 'multi':
+        for st in k.get('steps', []):
+            time.sleep(int(st['value']) / 1000) if st['action'] == 'wait' else run_action(st)
+
+
+def check(a, v):  # raises ValueError with a message for the user
+    if a == 'hotkey':
+        parse_hotkey(v)
+    if a == 'media' and v not in MEDIA:
+        raise ValueError(tr('Please choose a media action.'))
+    if a == 'wait' and not (v.isdigit() and int(v) <= 60000):
+        raise ValueError(tr('Wait: 0 to 60000 ms.'))
+
+
+def fresh(k):  # a copy is its own plugin instance, inside folders too
+    k = dict(k, **({'context': uuid.uuid4().hex} if 'context' in k else {}))
+    if 'folder' in k:
+        k['folder'] = [fresh(x) for x in k['folder']]
+    return k
 
 
 def render(k):
@@ -576,6 +658,11 @@ def load():
     cfg['page'] = max(0, min(cfg.get('page', 0), len(cfg['pages']) - 1))
     cfg.setdefault('layout', LAYOUT)  # which board the keyboard picture / key list use
     cfg.setdefault('light', dict(LIGHT))
+    if LM:  # fixed LED map; the Dark Mount's calibrated one waits under keymap_dark
+        cfg.setdefault('keymap_dark', cfg.get('keymap', {}))
+        cfg['keymap'] = dict(LM_KEYMAP)
+    elif 'keymap_dark' in cfg:
+        cfg['keymap'] = cfg.pop('keymap_dark')
     cfg['dock'] = {**DOCK, **cfg.get('dock', {})}
     cfg.pop('keycolors', None)  # replaced by layers
     for L in cfg.get('layers', []):  # whole edges became single LEDs
@@ -635,6 +722,10 @@ def autostart(on=None, name='OnyxIO'):
     return on
 
 
+def blank_folder():
+    return blank_page([{'action': 'back'}])
+
+
 def blank_page(keys=()):
     return (list(keys) + [{'title': str(i + 1)} for i in range(len(keys), 8)])[:8]
 
@@ -658,25 +749,33 @@ class Device(threading.Thread):
         self.dock_name = ''  # Media Dock: profile line (the page), now playing ((state, pos, dur, artist, album, title), art)
         self.dock_media, self.on_dock = None, None  # on_dock(step): dock arrow ◀ / ▶ pressed
         self.dock_keys, self.dock_flash = {}, None  # {key index: label} to mirror on the dock; (label, image, time)
+        self.light = False  # a Light Mount is connected
 
     def run(self):
+        misses = 0  # connects in a row without any answer
         while True:
             ql = None
             try:
                 ql = dm.QLink()
                 if not ql.open_session():
                     raise dm.QLinkError(tr('busy – is IO Center running?'))
-                for key in dm.DISPLAY_KEYS:  # presses must not trigger an OS action of their own
-                    if ql.call(0x11, 0x06, key.to_bytes(2, 'little'))[2:] != b'\0':
-                        ql.set_binding(key, 0)
-                # key events need Macros.StartRecording; it streams every keystroke, all but display keys are dropped
+                self.light, misses = ql.light, 0
+                if ql.light:  # Light Mount: no display keys, no Media Dock
+                    log.info('Light Mount: session %d active', ql.sid)  # deck.log is all a remote tester can send back
+                else:
+                    for key in dm.DISPLAY_KEYS:  # presses must not trigger an OS action of their own
+                        if ql.call(0x11, 0x06, key.to_bytes(2, 'little'))[2:] != b'\0':
+                            ql.set_binding(key, 0)
+                # key events need Macros.StartRecording (IO Center sends the same to both); it streams every keystroke
                 ql.call(0x12, 0x09, bytes.fromhex('0308090b'))
-                self.state, last, pending, dock = tr('connected'), 0, dict.fromkeys(range(8), False), {}
-                shown, rt, full = {}, False, 0  # LEDs on the keyboard, realtime mode on, last full frame
+                self.state, last, dock = tr('connected'), 0, {}
+                pending = {} if ql.light else dict.fromkeys(range(8), False)
+                shown, rt, full, alive = {}, False, 0, 0  # LEDs on the keyboard, realtime mode on, last full frame
                 while True:
                     while not self.dirty.empty():
                         i, force = self.dirty.get()
-                        pending[i] = force or pending.get(i, False)
+                        if not ql.light:
+                            pending[i] = force or pending.get(i, False)
                     for i in [i for i in pending if self.upload(ql, i, pending[i])]:
                         del pending[i]
                     while not self.jobs.empty():
@@ -684,11 +783,19 @@ class Device(threading.Thread):
                         try:
                             job(ql)
                             self.state = tr('connected, {what}', what=done)
+                            if ql.light:
+                                log.info('Light Mount: %s', done)
                         except dm.QLinkError as e:
                             self.state = tr('connected, error: {e}', e=e)
+                            if ql.light:
+                                log.warning('Light Mount: %s', e)
                         rt = False  # set_lighting left realtime
                     lights, now = self.lights, time.monotonic()
-                    self.dock_sync(ql, dock, now)
+                    if not ql.light:
+                        self.dock_sync(ql, dock, now)
+                    elif lights and now - alive > 1:  # its 3 s session timeout may not count realtime frames
+                        ql.keep_alive()
+                        alive = now
                     if rt and not lights:
                         ql.call(0x10, 0x02, b'\1')  # back to the keyboard's own effect
                         rt = False
@@ -713,6 +820,13 @@ class Device(threading.Thread):
                         _, _, feat, cmd, p = ql.notes.get(timeout=wait)
                     except queue.Empty:
                         continue
+                    if ql.light:  # Light Mount InputEvent: 02 pressed / 03 released + HID usage; its key ids overlap
+                        led = LM_KEYMAP.get(HIDNAME.get(p[1])) if feat == 0x12 and len(p) >= 2 else None  # display keys'
+                        if led and p[0] in (2, 3) and self.record:  # only while the user records (Makros: Aufnehmen)
+                            self.record(led, p[0] == 2)
+                        if led and p[0] == 2 and self.lights:  # only when it lights up, never stored or logged
+                            self.hits[led] = time.monotonic()
+                        continue
                     if (feat, cmd) == (0x11, 0x02) and len(p) > 3 and p[3] == 8 and self.on_dock:  # ActionFired, action Profile:
                         self.on_dock({3: 1, 4: -1}.get(p[4] if len(p) > 4 else 0, 0))  # the dock's ▶ (03) / ◀ (04)
                     if (feat, cmd) == (0x11, 0x02) and len(p) >= 2 and int.from_bytes(p[:2], 'little') in dm.DISPLAY_KEYS:
@@ -732,7 +846,12 @@ class Device(threading.Thread):
             except Exception as e:  # unplugged, standby, or a bad plugin image: never let the session thread die
                 if not isinstance(e, (OSError, dm.QLinkError, queue.Empty)):
                     log.exception('device loop')
-                self.state = tr('disconnected ({why}), retrying …', why=tr(str(e)) if str(e) else tr('no answer'))
+                else:
+                    log.info('disconnected (%r)', e)
+                misses = misses + 1 if isinstance(e, queue.Empty) else 0
+                # seen 2026-11: a Dark Mount found but silent until unplugged once; nothing we may send gets it back
+                why = tr('no answer – unplug the keyboard and plug it back in') if misses >= 3 else                     tr(str(e)) if str(e) else tr('no answer')
+                self.state = tr('disconnected ({why}), retrying …', why=why)
                 if ql:
                     ql.close()
                 time.sleep(5)
@@ -1038,22 +1157,24 @@ class FxEditor(ttk.Frame):
         super().__init__(parent)
         self.root = root
         self.columnconfigure(0, minsize=LABEL)  # same label column as the layer name above it
-        for r, text in enumerate([tr('Effect'), tr('Direction'), tr('Colors'), '', tr('Brightness %'), tr('Speed %')]):
-            ttk.Label(self, text=text).grid(row=r, column=0, sticky='w', padx=(0, 12), pady=4)
+        self.lbl = [ttk.Label(self, text=text) for text in
+                    (tr('Effect'), tr('Direction'), tr('Colors'), '', tr('Brightness %'), tr('Speed %'))]
+        for r, lb in enumerate(self.lbl):
+            lb.grid(row=r, column=0, sticky='w', padx=(0, 12), pady=4)
         self.fx, self.fdir, self.cmode = (ttk.Combobox(self, state='readonly', values=v)
                                           for v in ([tr(x) for x in FXNAMES], [tr(x) for x in dm.DIRECTIONS],
                                                     self.MODES))
         for r, box in enumerate((self.fx, self.fdir, self.cmode)):
             box.grid(row=r, column=1, sticky='we', pady=4)
-        self.cmode.bind('<<ComboboxSelected>>', lambda e: self.widgets())
+        self.cmode.bind('<<ComboboxSelected>>', lambda e: (self.widgets(), self.fx_widgets()))
         f = ttk.Frame(self)
         f.grid(row=3, column=1, sticky='w')
         self.lc_btn = [tk.Button(f, width=6, command=lambda j=j: self.pick(j)) for j in range(2)]
         for b in self.lc_btn:
             b.pack(side='left', padx=(0, 6))
         self.bright, self.speed, self.thick = tk.IntVar(), tk.IntVar(), tk.IntVar()
-        for r, var in ((4, self.bright), (5, self.speed)):
-            slider(self, var, 0, 100, 300).grid(row=r, column=1, sticky='w')
+        self.bright_scale, self.speed_scale = (slider(self, var, 0, 100, 300) for var in (self.bright, self.speed))
+        self.bright_scale.grid(row=4, column=1, sticky='w')
         self.thick_lbl = ttk.Label(self, text=tr('Wave width %'))  # Ripple only, shown by fx_widgets()
         self.thick_scale = slider(self, self.thick, 0, 100, 300)
         self.rand = tk.BooleanVar()
@@ -1076,6 +1197,12 @@ class FxEditor(ttk.Frame):
         free = cust and self.free.get()
         self.thick_lbl.config(text=tr('Pattern scale %') if cust else tr('Wave width %'))
         grid = lambda w, on, **g: w.grid(**g) if on else w.grid_remove()
+        # only what the effect uses: direction moves Wave, Tornado, Custom and a still gradient; Static has no speed
+        way = fxi in (1, 2, 7) or fxi == 0 and self.cmode.current() == 2
+        grid(self.lbl[1], way, row=1, column=0, sticky='w', padx=(0, 12), pady=4)
+        grid(self.fdir, way, row=1, column=1, sticky='we', pady=4)
+        grid(self.lbl[5], fxi != 0, row=5, column=0, sticky='w', padx=(0, 12), pady=4)
+        grid(self.speed_scale, fxi != 0, row=5, column=1, sticky='w')
         grid(self.thick_lbl, rip or (cust and not free), row=6, column=0, sticky='w', padx=(0, 12), pady=4)
         grid(self.thick_scale, rip or (cust and not free), row=6, column=1, sticky='w')
         grid(self.free_chk, cust, row=7, column=1, sticky='w', pady=(4, 0))
@@ -1121,6 +1248,7 @@ class FxEditor(ttk.Frame):
         self.bright.set(L['brightness'])
         self.speed.set(L['speed'])
         self.widgets()
+        self.fx_widgets()
 
     def get(self):
         n = self.cmode.current()
@@ -1177,6 +1305,15 @@ class App:
         self.status.pack(side='right')
         self.dot = tk.Label(head, text='\u25cf', font=('Segoe UI', 11), bg=SIDE, fg=DIM)
         self.dot.pack(side='right', padx=(0, 4))
+        try:
+            pids = sorted(dm.devices())
+        except OSError:
+            pids = []
+        if len(pids) > 1:  # several keyboards: pick one, OnyxIO starts again on it (the board is fixed at start)
+            box = ttk.Combobox(head, state='readonly', width=12, values=[dm.MODELS[p] for p in pids])
+            box.set(dm.MODELS[2 if light_mount() else 1])
+            box.bind('<<ComboboxSelected>>', lambda e: self.set_device(pids[box.current()]))
+            box.pack(side='right', padx=(0, 10))
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
         nb = self.nav = Nav(root)
@@ -1189,22 +1326,25 @@ class App:
         for i, b in enumerate(self.tiles):
             b.grid(row=i // COLS, column=i % COLS, padx=3, pady=3)
             b.bind('<Button-3>', lambda e, i=i: self.key_menu(e, i))
-        self.clip = None
+            b.bind('<Double-1>', lambda e, i=i: self.after_idle_nav(i))
+        self.clip, self.msteps = None, []
         f = ttk.Frame(tiles)
         f.grid(row=2, column=0, columnspan=COLS, pady=(8, 0))
         ttk.Button(f, text='◀', width=3, command=lambda: self.goto(self.cfg['page'] - 1)).pack(side='left', padx=(0, 6))
-        self.page_lbl = ttk.Label(f, width=12, anchor='center')
+        self.page_lbl = ttk.Label(f, width=-12, anchor='center')
         self.page_lbl.pack(side='left')
         ttk.Button(f, text='▶', width=3, command=lambda: self.goto(self.cfg['page'] + 1)).pack(side='left', padx=(6, 0))
         ttk.Button(f, text=tr('New page'), command=self.add_page).pack(side='left', padx=(16, 6))
         ttk.Button(f, text=tr('Delete page'), command=self.del_page).pack(side='left', padx=(0, 6))
         f = ttk.Frame(tab, padding=(10, 0))
         f.grid(row=1, column=0, sticky='nsew')
-        ttk.Label(f, text=tr('Plugin settings'), foreground=DIM).pack(anchor='w', pady=(0, 4))
+        self.pi_head = ttk.Label(f, text=tr('Plugin settings'), foreground=DIM)
+        self.pi_head.pack(anchor='w', pady=(0, 4))
         self.pi = tk.Frame(f, bg=FIELD, width=530, height=290, highlightthickness=1, highlightbackground=LINE)
         self.pi.pack(fill='both', expand=True)
         self.pi_lbl = tk.Label(self.pi, bg=FIELD, fg=DIM, wraplength=440)
         self.pi_lbl.place(relx=.5, rely=.5, anchor='center')
+        self.build_steps()
         f = ttk.Frame(tab, padding=(10, 0))
         f.grid(row=1, column=1, sticky='nsew')
         ttk.Label(f, text=tr('Actions – drag onto a key or double-click'), foreground=DIM).pack(anchor='w',
@@ -1295,7 +1435,10 @@ class App:
         ttk.Checkbutton(f, text=tr('Start with Windows') if WIN else tr('Start at login'), variable=self.auto,
                         command=lambda: autostart(self.auto.get()),
                         style='Switch.TCheckbutton' if sv_ttk else 'TCheckbutton').grid(row=4, column=0, columnspan=2, sticky='w', pady=6)
-        nb.select(0)
+        if light_mount():  # no display keys, no Media Dock -> Lighting, Macros and Settings
+            for i in (0, 3):
+                nb.items[i].pack_forget()
+        nb.select(1 if light_mount() else 0)
         self.dev = Device(lambda i: render(self.look(self.keys[i])), self.on_key)
         self.dev.on_dock = lambda step: step and self.cfg['dock']['pages'] and self.ui.put(
             lambda: self.goto(self.cfg['page'] + step))
@@ -1429,7 +1572,7 @@ class App:
         for j, ev in enumerate(('<ButtonPress-1>', '<B1-Motion>', '<ButtonRelease-1>')):
             self.kb.bind(ev, lambda e, j=j: self.drag(e, j))
         self.toolbar, self.calbar = ttk.Frame(t), ttk.Frame(t)
-        for bar, buttons in ((self.toolbar, ((tr('All / none'), self.select_all_keys), (tr('Map LEDs …'), self.calibrate),
+        for bar, buttons in ((self.toolbar, ((tr('All / none'), self.select_all_keys), *(() if LM else ((tr('Map LEDs …'), self.calibrate),)),
                                              (tr('Import IO Center profile …'), self.import_profile))),
                              (self.calbar, ((tr('Back'), lambda: self.cal_step(-1)), (tr('Next'), lambda: self.cal_step(1)),
                                             (tr('Done'), self.cal_done)))):
@@ -1599,7 +1742,7 @@ class App:
         for x0, y0, x1, y1 in FRAME_BOX.values():
             c.create_rectangle(cx(x0), cy(y0), cx(x1), cy(y1), outline=LINE)
         mid = (cy(-MT) + r + cy(1.25)) / 2  # between the numpad's top LEDs and its keys
-        for i, im in enumerate(self.mini_photos):
+        for i, im in enumerate([] if LM else self.mini_photos):  # the Light Mount has no display keys
             x, y = cx(20.75 + i % COLS), mid + (mini / 2 + 2 * k) * (1 if i >= COLS else -1)
             c.create_rectangle(x - mini / 2 - 1, y - mini / 2 - 1, x + mini / 2, y + mini / 2, fill=FIELD, outline=LINE,
                                tags=(f'disp{i}',))
@@ -1727,10 +1870,70 @@ class App:
         return self.choices.get(self.action.get(), ('none', None))
 
     @property
-    def keys(self):  # the page being shown, on the keyboard and in the editor alike
-        return self.cfg['pages'][self.cfg['page']]
+    def keys(self):  # the page or folder being shown, on the keyboard and in the editor alike
+        return self.host.keys
+
+    def build_steps(self):  # multi action: a step list over the plugin settings frame, shown for "Multi action"
+        f = self.stepf = ttk.Frame(self.pi, padding=10)
+        self.klist = tk.Listbox(f, height=8, bg=FIELD, fg=FG, selectbackground=PICK, highlightthickness=1,
+                                highlightbackground=LINE, relief='flat', exportselection=False, activestyle='none')
+        self.klist.pack(fill='both', expand=True)
+        row = ttk.Frame(f)
+        row.pack(fill='x', pady=(8, 0))
+        self.sact = ttk.Combobox(row, state='readonly', values=list(STEPS.values()), width=22)
+        self.sact.pack(side='left')
+        self.sact.bind('<<ComboboxSelected>>', lambda e: (self.sval.set(''), self.sval.config(
+            values=[tr(m) for m in MEDIA] if self.step_id() == 'media' else [],
+            state='readonly' if self.step_id() == 'media' else 'normal')))
+        self.sval = ttk.Combobox(row, width=10)
+        self.sval.pack(side='left', fill='x', expand=True, padx=6)
+        ttk.Button(row, text=tr('Add'), command=self.add_step).pack(side='left')
+        row = ttk.Frame(f)
+        row.pack(fill='x', pady=(6, 0))
+        ttk.Button(row, text=tr('Remove'), command=lambda: self.edit_steps(0)).pack(side='left', padx=(0, 6))
+        ttk.Button(row, text='↑', width=3, command=lambda: self.edit_steps(-1)).pack(side='left', padx=(0, 6))
+        ttk.Button(row, text='↓', width=3, command=lambda: self.edit_steps(1)).pack(side='left')
+        ttk.Label(row, foreground=DIM, text=tr('runs top to bottom, Apply saves')).pack(side='right')
+
+    def step_id(self):
+        return next((a for a, label in STEPS.items() if label == self.sact.get()), None)
+
+    def fill_steps_list(self, sel=None):
+        self.klist.delete(0, 'end')
+        for st in self.msteps:
+            self.klist.insert('end', f'{STEPS[st["action"]]}:  {tr(st["value"]) if st["action"] == "media" else st["value"]}')
+        if sel is not None:
+            self.klist.selection_set(sel)
+            self.klist.see(sel)
+
+    def add_step(self):
+        a, v = self.step_id(), self.sval.get().strip()
+        if a == 'media':
+            v = next((m for m in MEDIA if tr(m) == v), v)
+        try:
+            if not a:
+                raise ValueError(tr('Please choose what the step does.'))
+            check(a, v)
+        except ValueError as e:
+            return messagebox.showerror('OnyxIO', str(e), parent=self.root)
+        self.msteps.append({'action': a, 'value': v.strip('"') if a == 'open' else v})
+        self.fill_steps_list(len(self.msteps) - 1)
+        self.sval.set('')
+
+    def edit_steps(self, d):  # 0 = remove, -1/1 = move up/down
+        j = next(iter(self.klist.curselection()), None)
+        if j is None:
+            return
+        if not d:
+            self.msteps.pop(j)
+            return self.fill_steps_list()
+        n = max(0, min(len(self.msteps) - 1, j + d))
+        self.msteps.insert(n, self.msteps.pop(j))
+        self.fill_steps_list(n)
 
     def look(self, k):  # key config -> what render() draws
+        if k.get('action') in AUTO and not k.get('title') and not k.get('icon'):
+            k = dict(k, title=AUTO[k['action']])
         if k.get('action') in PAGE and not k.get('title') and not k.get('icon'):
             k = dict(k, title=f'{"◄►"[k["action"] == "page_next"]}\n{self.cfg["page"] + 1}/{len(self.cfg["pages"])}')
         return self.host.decorate(k) if k.get('action') == 'plugin' else k
@@ -1751,7 +1954,7 @@ class App:
                                                                                    pady=(6, 0))
         self.medit = ed = ttk.Frame(t)
         ed.grid(row=0, column=1, sticky='nw')
-        for r, text in enumerate(['Name', tr('Playback'), tr('Delays'), tr('Steps'), '', tr('Keys')]):
+        for r, text in enumerate(['Name', tr('Playback'), tr('Delays'), tr('Steps'), '', '' if LM else tr('Keys')]):
             ttk.Label(ed, text=text).grid(row=r, column=0, sticky='nw' if r == 3 else 'w', padx=(0, 16), pady=(10, 4) if r == 3 else 4)
         ed.columnconfigure(1, weight=1)
         self.mname = ttk.Entry(ed)
@@ -1793,10 +1996,18 @@ class App:
         self.mkeys = ttk.Label(f)
         self.mkeys.pack(side='left')
         ttk.Button(f, text=tr('Unbind'), command=self.unbind_macro).pack(side='right')
-        self.bind_btn = ttk.Button(f, text=tr('Assign key …'), command=self.pick_macro_key)
+        if LM:  # Light Mount: IO Center puts macros only on M1-M5 (captured), picked from a list, not by key press
+            self.bind_btn = ttk.Combobox(f, state='readonly', width=16, values=[f'M{k - 1}' for k in LM_MEDIA])
+            self.bind_btn.set(tr('Assign key …'))
+            self.bind_btn.bind('<<ComboboxSelected>>', lambda e: self.bind_macro_key(self.bind_btn.current() + 2))
+        else:
+            self.bind_btn = ttk.Button(f, text=tr('Assign key …'), command=self.pick_macro_key)
         self.bind_btn.pack(side='right', padx=6)
         ttk.Button(ed, text=tr('Apply'), command=self.apply_macro).grid(row=6, column=1, sticky='e', pady=(12, 0))
         ttk.Label(t, foreground='gray', wraplength=760, justify='left', text=tr(
+            'Macros live on the keyboard and run there even without this program, like with IO Center. OnyxIO reads '
+            'your key presses for this only while recording. Macros go on M1–M5; “Unbind” gives the key its media '
+            'function back.') if LM else tr(
             'Macros live on the keyboard and run there even without this program, like with IO Center. OnyxIO reads '
             'your key presses for this only while recording or during “Assign key”. Display keys and Fn cannot be '
             'recorded or assigned; set up display keys under “Keys”.')).grid(
@@ -1806,7 +2017,9 @@ class App:
     def load_macros(self):
         def job(ql):
             ms, binds = ql.macros(), {}
-            for k in KEY_LEDS:  # binding ids = key ids; keys without an own binding answer InvalidParameter
+            if LM:
+                binds = lm_binds(ql.call(0x11, 0x01, bytes(2)))
+            for k in [] if LM else KEY_LEDS:  # binding ids = key ids; keys without an own binding answer InvalidParameter
                 try:
                     b = ql.call(0x11, 0x06, k.to_bytes(2, 'little'))
                 except dm.QLinkError:
@@ -1852,7 +2065,7 @@ class App:
         if extra:
             self.slist.see('end')
         if self.msel is not None:
-            names = {i: n for n, i in self.cfg.get('keymap', {}).items()}
+            names = self.bind_names()
             keys = [k for k, v in self.mbind.items() if v == self.macros[self.msel]['id']]
             self.mkeys.config(text=', '.join(keylabel(names[k]) if k in names else str(k) for k in keys) or tr('none'))
 
@@ -1944,11 +2157,14 @@ class App:
                 self.ui.put(lambda: self.bind_macro_key(k))
         self.dev.record = got
 
+    def bind_names(self):  # binding id -> key name; the Light Mount's ids are its own (M1-M5 = 2-6)
+        return {k: f'Key_M{k - 1}' for k in LM_MEDIA} if LM else {i: n for n, i in self.cfg.get('keymap', {}).items()}
+
     def bind_macro_key(self, k):
-        self.bind_btn.config(text=tr('Assign key …'))
-        names = {i: n for n, i in self.cfg.get('keymap', {}).items()}
+        self.bind_btn.set(tr('Assign key …')) if LM else self.bind_btn.config(text=tr('Assign key …'))
+        names = self.bind_names()
         label = keylabel(names[k]) if k in names else tr('Key {n}', n=k)
-        if self.msel is None or k not in KEY_LEDS:
+        if self.msel is None or k not in (LM_MEDIA if LM else KEY_LEDS):
             return self.mhint.config(text=tr('{key} cannot be assigned.', key=label))
         self.mhint.config(text=tr('{key} now triggers “{macro}”.', key=label, macro=self.macros[self.msel]['name']))
         mid = self.macros[self.msel]['id']
@@ -1965,12 +2181,14 @@ class App:
             del self.mbind[k]
 
         def job(ql):
-            for k in keys:  # ClearBinding: the key is a normal key again
-                ql.call(0x11, 0x03, k.to_bytes(2, 'little'))
+            for k in keys:  # ClearBinding: the key is a normal key again; Light Mount: M key back to its media action
+                ql.set_binding(k, 2, bytes([LM_MEDIA[k]])) if LM else ql.call(0x11, 0x03, k.to_bytes(2, 'little'))
         self.dev.jobs.put((job, tr('Keys unbound')))
         self.fill_steps()
 
     def add_macro(self):
+        if LM and len(self.macros) >= 10:  # IO Center's manifest: 10 macros of at most 56 steps
+            return messagebox.showinfo('OnyxIO', tr('The keyboard holds at most {n} macros.', n=10), parent=self.root)
         used = {m['id'] for m in self.macros}
         m = {'id': next(i for i in range(1, 1000) if i not in used), 'name': tr('Macro {n}', n=len(self.macros) + 1),
              'mode': 0, 'delay_mode': 2, 'delay': 0, 'events': []}
@@ -1998,6 +2216,8 @@ class App:
             delay = max(0, min(65535, int(self.mms.get())))
         except ValueError:
             delay = 0
+        if LM and len(self.steps) > 56:
+            return messagebox.showinfo('OnyxIO', tr('A macro holds at most {n} steps.', n=56), parent=self.root)
         m = self.macros[self.msel]
         m.update(name=self.mname.get().strip()[:24] or tr('Macro'), mode=self.mmode.current(),
                  delay_mode=self.mdelay.current(), delay=delay, events=[tuple(e) for e in self.steps])
@@ -2007,9 +2227,10 @@ class App:
 
     def on_key(self, i, down):  # device thread
         a = self.keys[i].get('action')
-        if a in PAGE:  # on release, so the new page's key never sees a lone keyUp
+        if a in NAV:  # on release, so the new page's key never sees a lone keyUp
             if not down:
-                self.ui.put(lambda: self.goto(self.cfg['page'] + (1 if a == 'page_next' else -1)))
+                self.ui.put(lambda: self.open_folder(i) if a == 'folder' else self.leave_folder() if a == 'back' else
+                            self.goto(self.cfg['page'] + (1 if a == 'page_next' else -1)))
         elif a == 'plugin':
             self.host.key(i, down)
         elif down:
@@ -2041,6 +2262,8 @@ class App:
         self.action.set(label)
         self.update_value_widget()
         self.val.set('' if a == 'plugin' else tr(k.get('value', '')) if a == 'media' else k.get('value', ''))
+        self.msteps = list(k.get('steps', []))
+        self.fill_steps_list()
         for j, t in enumerate(self.tiles):
             t.config(bg=ORANGE if j == i else LINE, activebackground=ORANGE if j == i else LINE)  # frame = selection
         self.preview()
@@ -2049,11 +2272,13 @@ class App:
     def update_value_widget(self):
         a, au = self.action_id()
         self.value.config(values=[tr(m) for m in MEDIA] if a == 'media' else [],
-                          state='readonly' if a == 'media' else 'disabled' if a in ('none', 'plugin', *PAGE) else 'normal')
+                          state='readonly' if a == 'media' else 'disabled' if a in ('none', 'plugin', 'multi', *NAV) else 'normal')
         for b in self.browse:
             b.config(state='normal' if a == 'open' else 'disabled')
         pi = a == 'plugin' and self.host.has_pi(au)
         self.hint.config(text=tr('Settings appear below') if pi else ACTIONS.get(a, ('', ''))[1])
+        self.pi_head.config(text=tr('Multi action – steps') if a == 'multi' else tr('Plugin settings'))
+        self.stepf.place(relwidth=1, relheight=1) if a == 'multi' else self.stepf.place_forget()
 
     def current(self):  # editor state as key config
         (a, au), v = self.action_id(), self.val.get().strip()
@@ -2068,14 +2293,21 @@ class App:
             same = old.get('action') == 'plugin' and old.get('value') == au
             k['context'] = old['context'] if same else uuid.uuid4().hex
             k['settings'] = old.get('settings', {}) if same else {}
+        if a == 'folder':  # the folder keeps its keys while it stays a folder
+            old = self.keys[self.sel]
+            k['folder'] = old['folder'] if old.get('action') == 'folder' else blank_folder()
+        if a == 'multi':
+            k['steps'] = list(self.msteps)
         return k
 
     def key_menu(self, e, i):  # right click on a display key
+        a = self.keys[i].get('action')
         popup(self.root, e.x_root, e.y_root, [
-            (tr('Edit'), '', lambda: self.select(i)), None,
+            (tr('Edit'), '', lambda: self.select(i)),
+            *([(tr('Open folder'), '', lambda: self.open_folder(i))] if a == 'folder' else []),
+            *([(tr('Leave folder'), '', self.leave_folder)] if self.host.path else []), None,
             (tr('Copy'), '', lambda: setattr(self, 'clip', json.loads(json.dumps(self.keys[i])))),
-            (tr('Paste'), '', self.clip and (lambda: self.put_key(  # a plugin copy is its own instance
-                i, {**self.clip, **({'context': uuid.uuid4().hex} if 'context' in self.clip else {})}))),
+            (tr('Paste'), '', self.clip and (lambda: self.put_key(i, fresh(self.clip)))),
             (tr('Swap with next key'), '', lambda: self.swap_keys(i, (i + 1) % 8)), None,
             (tr('Clear'), '', lambda: self.put_key(i, {'title': ''}))])
 
@@ -2100,12 +2332,8 @@ class App:
 
     def apply(self):
         k = self.current()
-        a, v = k['action'], k['value']
         try:
-            if a == 'hotkey':
-                parse_hotkey(v)
-            if a == 'media' and v not in MEDIA:
-                raise ValueError(tr('Please choose a media action.'))
+            check(k['action'], k['value'])
         except ValueError as e:
             messagebox.showerror('OnyxIO', str(e), parent=self.root)
             return False
@@ -2115,7 +2343,7 @@ class App:
             save(self.cfg)
             if old.get('action') == 'plugin' and old.get('context') != k.get('context'):
                 self.host.disappear(self.sel, old)
-            if a == 'plugin' and old.get('context') != k['context']:
+            if k['action'] == 'plugin' and old.get('context') != k['context']:
                 self.host.appear(self.sel)
             self.dev.dirty.put((self.sel, True))
             self.draw_tile(self.sel)
@@ -2156,6 +2384,13 @@ class App:
             self.restart = True
             self.root.destroy()
 
+    def set_device(self, pid):
+        if pid != (2 if light_mount() else 1) and self.apply():
+            self.cfg['device'] = pid
+            save(self.cfg)
+            self.restart = True
+            self.root.destroy()
+
     def set_layout(self, code):  # the board table is fixed at start, like the language: save, close, come back
         if code != self.cfg.get('layout') and self.apply():
             self.cfg['layout'] = code
@@ -2168,12 +2403,31 @@ class App:
         if not drop and not self.apply():
             return
         pages = self.cfg['pages']
+
+        def change():
+            self.host.path.clear()  # another page starts at its top, outside any folder
+            if drop:
+                pages.pop(self.cfg['page'])
+            self.cfg['page'] = min(n, len(pages) - 1) if drop else n % len(pages)
+        self.switch(change)
+
+    def open_folder(self, i):
+        if self.keys[i].get('action') == 'folder' and self.apply():
+            self.switch(lambda: self.host.path.append(i))
+
+    def leave_folder(self):
+        if self.host.path and self.apply():
+            self.switch(self.host.path.pop)
+
+    def after_idle_nav(self, i):  # double-click on a tile: folder in, back out
+        a = self.keys[i].get('action')
+        self.root.after_idle(lambda: self.open_folder(i) if a == 'folder' else self.leave_folder() if a == 'back' else None)
+
+    def switch(self, change):  # the 8 keys show something else: plugins there leave, change() runs, the new ones come
         for i, k in enumerate(self.keys):
             if k.get('action') == 'plugin':
                 self.host.disappear(i, k)
-        if drop:
-            pages.pop(self.cfg['page'])
-        self.cfg['page'] = min(n, len(pages) - 1) if drop else n % len(pages)
+        change()
         save(self.cfg)
         now = time.monotonic()  # the user asked for the new page: plugin images that follow go out at once (MIN_GAP)
         self.dev.pressed.update(dict.fromkeys(range(8), now))
@@ -2186,7 +2440,11 @@ class App:
         self.select(self.sel)  # same index: loads the new page's key without saving anything
 
     def show_page(self):
-        self.page_lbl.config(text=tr('Page {n} / {total}', n=self.cfg['page'] + 1, total=len(self.cfg['pages'])))
+        names, keys = [], self.cfg['pages'][self.cfg['page']]
+        for j in self.host.path:  # folder trail: Page 1 / 2 › Games › …
+            names.append(keys[j].get('title', '').replace('\n', ' ') or tr('Folder'))
+            keys = keys[j]['folder']
+        self.page_lbl.config(text=' › '.join([tr('Page {n} / {total}', n=self.cfg['page'] + 1, total=len(self.cfg['pages'])), *names]))
         self.dev.dock_name = self.page_lbl.cget('text') if self.cfg['dock']['pages'] else 'OnyxIO'
         self.dev.dock_keys = {i: (k.get('title') or '') for i, k in enumerate(self.keys) if k.get('dock')}
 
@@ -2257,7 +2515,7 @@ class App:
         self.set_icon('')
         self.val.set('')
         self.update_value_widget()
-        if kind == 'p' or v in PAGE:  # nothing to fill in: save right away
+        if kind == 'p' or v in NAV:  # nothing to fill in: save right away
             self.apply()
             self.pi_show()
         else:
@@ -2457,7 +2715,13 @@ if __name__ == '__main__':
         app.host.on_dock(0, 'Hi')
         assert app.dev.dock_flash[0] == 'Hi'
         app.cfg['keymap'] = km0 or {}
+        shown = lambda: [bool(w.grid_info()) for w in (app.layer_ed.fdir, app.layer_ed.speed_scale)]
+        app.layer_ed.set({'effect': 0, 'direction': 0, 'brightness': 50, 'speed': 50, 'colors': ['#ff0000']})
+        assert shown() == [False, False]  # Static, one color: no direction, no speed
+        app.layer_ed.set({'effect': 1, 'direction': 0, 'brightness': 50, 'speed': 50, 'colors': ['#ff0000']})
+        assert shown() == [True, True]
         app.layer_ed.set({'effect': 4, 'direction': 0, 'brightness': 50, 'speed': 50, 'colors': ['#ff0000', '#0000ff']})
+        assert shown() == [False, True]  # Reactive: speed only
         app.apply_layer()
         job, _ = app.dev.jobs.get_nowait()
         calls = []
@@ -2700,6 +2964,23 @@ if __name__ == '__main__':
         lang.LANG = 'en'
         root.update()
         root.destroy()
+        use_light_mount()  # last: rebinds the board globals to the Light Mount
+        assert len(LM_KEYMAP) == 112 and set(LM_KEYMAP) >= set(KEYNAMES) and LM_KEYMAP['Key_Escape'] == 46
+        assert len(FRAMELEDS) == 45 and FRAMELEDS['Led_KeyboardTop45'] == 44
+        assert sorted(light_plan([], LIGHT, LM_KEYMAP)) == [i for i in range(158) if i != 137]  # 137: no LED
+        assert all(-M < x < (KB_W - 2 * PAD) / U - M and -MT < y < (KB_H - 2 * PADY) / U - MT
+                   for x, y in (*KEYPOS.values(), *FRAMEPOS.values()))  # everything fits the picture
+        assert KEYPOS['Key_NumLock'] == (19, 1.75) and KEYPOS['Key_M1'] == (-.75, 1.75)
+        # captured Light Mount InputEvent HID usages: Esc, A, Space, Right, Numpad5 -> their LEDs
+        assert [LM_KEYMAP[HIDNAME[h]] for h in (0x29, 0x04, 0x2c, 0x4f, 0x5d)] == [46, 108, 148, 155, 122]
+        assert lm_binds(bytes.fromhex('05000200020703000205040002060500020806000204')) == {}  # IO Center's capture
+        assert lm_binds(bytes.fromhex('050002000a010003000205040002060500020806000a0300')) == {2: 1, 6: 3}
+        found = [('a', 2), ('b', 1), ('c', 1)]
+        with __import__('unittest.mock').mock.patch.object(dm, 'find_all', lambda: iter(found)):
+            assert dm.find_path() == ('b', 1)
+            dm.PREFER = 2
+            assert dm.find_path() == ('a', 2)
+            dm.PREFER = None
         print('ok')
     else:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s', handlers=[

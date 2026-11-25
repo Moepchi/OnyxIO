@@ -155,10 +155,14 @@ class Host:
         self.live, self.pis, self.port = {}, {}, 0  # live: context -> {'state', 'img', 'title'}; pis: context -> Conn
         self.light = {}  # plugin uuid -> {LED name or 'all': (r, g, b)} from onyxio.setLight, drawn over every layer
         self.on_light = self.on_page = self.on_dock = lambda *a: None  # set by the app, run in its UI thread
+        self.path = []  # open folders: key indices from the page down
 
     @property
-    def keys(self):  # the page on the display keys right now; the other pages are "disappeared"
-        return self.cfg['pages'][self.cfg['page']]
+    def keys(self):  # the page or folder on the display keys right now; everything else is "disappeared"
+        k = self.cfg['pages'][self.cfg['page']]
+        for i in self.path:
+            k = k[i]['folder']
+        return k
 
     def start(self):
         self.srv = socket.create_server(('127.0.0.1', 0))

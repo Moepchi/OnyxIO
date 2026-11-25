@@ -13,3 +13,7 @@ build/
 dist/
 *.spec
 !OnyxIO.spec
+
+# capture results (contain the keyboard serial) and local test builds
+tools/*.zip
+tools/*.exe

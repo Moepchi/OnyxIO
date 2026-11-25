@@ -1,0 +1,21 @@
+Light Mount Tasten-Mitschnitt für OnyxIO (Teil 2, ca. 3 Minuten)
+=================================================================
+
+Wozu: Damit "Reaktiv" und "Wassertropfen" in OnyxIO auf Tastendrücke reagieren,
+muss ich sehen, wie IO Center die Tastendrücke von der Light Mount bekommt.
+
+WICHTIG: Diesmal werden Tastendrücke mitgeschrieben. Deshalb nur genau die
+Tasten unten drücken, nichts anderes tippen (keine Passwörter, keine Chats).
+Es wird nichts an der Firmware geändert.
+
+1. Doppelklick auf "Tasten-Mitschnitt starten.bat".
+2. IO Center öffnet sich. Warten, bis die Light Mount angezeigt wird.
+3. Beleuchtung: Effekt "Reaktiv" anklicken. 3 Sekunden warten.
+   Dann langsam, mit je ca. 2 Sekunden Pause, einmal drücken:
+     Esc, A, Leertaste, Pfeil rechts, Ziffernblock 5
+4. Makros: ein neues Makro anlegen und "Aufnehmen" starten.
+   Einmal A drücken, dann B. Aufnahme stoppen.
+   Das Makro NICHT speichern (Abbrechen bzw. wieder löschen).
+5. Beleuchtung wieder auf den Effekt stellen, der vorher drin war.
+6. Ins schwarze Fenster klicken und ENTER drücken.
+7. Auf dem Desktop liegt jetzt "LightMount-Tasten.zip". Bitte zurückschicken.

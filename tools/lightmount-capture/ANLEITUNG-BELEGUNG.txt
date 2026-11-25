@@ -1,0 +1,25 @@
+Light Mount Belegungs-Mitschnitt für OnyxIO (Teil 3, ca. 3 Minuten)
+====================================================================
+
+Wozu: OnyxIO soll ein Makro auf eine Taste legen können. Dafür muss ich sehen,
+welchen Befehl IO Center dabei an die Light Mount schickt.
+
+WICHTIG: Tastendrücke werden mitgeschrieben. Nur genau die Tasten unten
+drücken, nichts anderes tippen (keine Passwörter, keine Chats).
+Es wird nichts an der Firmware geändert.
+
+1. Doppelklick auf "Belegung-Mitschnitt starten.bat".
+2. IO Center öffnet sich. Warten, bis die Light Mount angezeigt wird.
+3. Makros: ein neues Makro anlegen und "Aufnehmen" starten.
+   Einmal A drücken. Aufnahme stoppen. Makro SPEICHERN.
+4. Tastenbelegung: die Taste M1 anklicken und ihr das eben angelegte
+   Makro zuweisen. Speichern/Übernehmen.
+   Klappt das nicht, stattdessen F12 nehmen. Kommt eine Fehlermeldung,
+   bitte kurz aufschreiben, was dasteht.
+5. Einmal M1 (bzw. F12) drücken und schauen, ob ein "a" ausgegeben wird.
+   (Am besten im schwarzen Fenster, da stört es nicht.)
+6. M1 (bzw. F12) wieder auf die alte Funktion zurückstellen
+   (M1 war "Wiedergabe/Pause"). Das Makro danach löschen.
+7. Ins schwarze Fenster klicken und ENTER drücken.
+8. Auf dem Desktop liegt jetzt "LightMount-Belegung.zip". Bitte zurückschicken,
+   zusammen mit der Info, ob M1/F12 das "a" ausgegeben hat.

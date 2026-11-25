@@ -1,0 +1,34 @@
+Light Mount Mitschnitt für OnyxIO
+=================================
+
+Was passiert: Das Skript startet IO Center neu, mit eingeschaltetem Protokoll.
+Es schickt selbst NICHTS an die Tastatur, an der Firmware wird nichts geändert.
+Tastendrücke, Makro-Inhalte und dein Benutzername werden vor dem Zippen herausgefiltert.
+
+Dauer: ca. 5 Minuten.
+
+1. Ordner entpacken, z. B. auf den Desktop.
+2. Doppelklick auf "Mitschnitt starten.bat".
+   (Falls Windows "Der Computer wurde durch Windows geschützt" zeigt:
+    "Weitere Informationen" -> "Trotzdem ausführen".)
+3. IO Center öffnet sich. Warte, bis die Light Mount angezeigt wird.
+4. WÄHREND DES MITSCHNITTS BITTE NICHTS TIPPEN. Nur mit der Maus klicken.
+5. In IO Center nacheinander, mit je ~3 Sekunden Pause:
+   Beleuchtung
+     - jeden Effekt einmal anklicken
+     - eine Farbe ändern (z. B. auf reines Rot, dann reines Blau)
+     - Helligkeit: ganz runter, dann ganz hoch
+     - Geschwindigkeit einmal verändern
+     - falls es "Pro Taste" / Einzeltasten-Farben gibt: 2-3 Tasten einfärben
+   Tastenbelegung
+     - eine Taste auf etwas anderes legen, dann wieder zurücksetzen
+   Makros
+     - nur die Seite öffnen, KEIN Makro aufnehmen
+   Produkteinstellungen
+     - jede Einstellung einmal umschalten und wieder zurück
+     - Profil wechseln, falls möglich, und wieder zurück
+6. Zurück ins schwarze Fenster und ENTER drücken.
+7. Auf dem Desktop liegt jetzt "LightMount-Mitschnitt.zip".
+   Diese Datei bitte zurückschicken. Fertig!
+
+Am Ende ruhig alles wieder so einstellen, wie es vorher war.

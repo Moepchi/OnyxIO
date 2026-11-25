@@ -101,6 +101,8 @@ pythonw deck.py
 - **Start with Windows**: tick the box at the bottom right – OnyxIO then starts in the tray when you log in.
   `--min` starts it in the tray by hand.
 - **Close IO Center first** – the keyboard accepts only one program at a time.
+- **Status stays at "disconnected (no answer)"?** The keyboard sometimes hangs and answers no program at all,
+  IO Center included (it then doesn't show the keyboard either). Unplug it once and plug it back in.
 - Settings are saved in `deck.json` next to the program; plugin output goes to `deck.log`.
 - Self-tests: `python deck.py test`, `python darkmount.py test` and `python sdhost.py test` (no keyboard needed).
 - Build the .exe yourself: `pip install pyinstaller` then `pyinstaller OnyxIO.spec` (the same as the release
@@ -220,6 +222,8 @@ pythonw deck.py
 - **Mit Windows starten**: Haken unten rechts setzen – OnyxIO startet dann bei der Anmeldung im Tray.
   `--min` startet es von Hand im Tray.
 - **Vorher IO Center schließen** – die Tastatur nimmt nur ein Programm gleichzeitig an.
+- **Status bleibt bei „getrennt (keine Antwort)“?** Die Tastatur hängt sich manchmal auf und antwortet dann keinem
+  Programm mehr, auch IO Center nicht (dort fehlt sie dann ebenfalls). Einmal ab- und wieder anstecken.
 - Einstellungen landen in `deck.json` neben dem Programm, Plugin-Ausgaben in `deck.log`.
 - Selbsttests: `python deck.py test`, `python darkmount.py test` und `python sdhost.py test` (ohne Tastatur).
 - .exe selbst bauen: `pip install pyinstaller`, dann `pyinstaller OnyxIO.spec` (wie der Release-Build;

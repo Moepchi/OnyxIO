@@ -1,6 +1,9 @@
 """Minimal QLink client for the be quiet! Dark Mount (Windows + Linux hidraw, stdlib + Pillow). Protocol: PROTOCOL.md."""
-import ctypes, glob, io, os, queue, struct, sys, threading, time, types, uuid
+import ctypes, glob, io, os, queue, re, struct, sys, threading, time, types, uuid
 
+# USB PIDs. The Light Mount speaks the same QLink (checked against IO Center's traffic) but has no display keys (0x20)
+# and no Media Dock (0x21). Its bootloader PIDs (0x000A, TKL 0x0029) and the untested TKL (0x0018) stay out.
+MODELS = {0x0001: 'Dark Mount', 0x0002: 'Light Mount'}
 HID_GUID = uuid.UUID('4d1e55b2-f16f-11cf-88cb-001111000030')
 DISPLAY_KEYS = range(0x6d, 0x75)  # Key_NumpadImage0..7
 STATUS = ['Success', 'InvalidSessionId', 'InvalidFeatureId', 'InvalidCommandId', 'InvalidRequestId',
@@ -17,7 +20,7 @@ def crc16(data):  # CRC-16/MODBUS
 
 
 if sys.platform == 'win32':
-    def find_path():
+    def find_all():
         cm = ctypes.WinDLL('cfgmgr32')
         guid = (ctypes.c_byte * 16).from_buffer_copy(HID_GUID.bytes_le)
         n = ctypes.c_ulong()
@@ -26,9 +29,9 @@ if sys.platform == 'win32':
         if cm.CM_Get_Device_Interface_ListW(guid, None, buf, n.value, 0):
             raise OSError('CM_Get_Device_Interface_ListW failed')
         for p in buf[:n.value].split('\0'):
-            if 'vid_373f&pid_0001&mi_02' in p.lower():
-                return p
-        raise OSError('Dark Mount (MI_02) not found')
+            m = re.search(r'vid_373f&pid_(\w{4})&mi_02', p.lower())
+            if m and int(m[1], 16) in MODELS:
+                yield p, int(m[1], 16)
 
     K = ctypes.WinDLL('kernel32', use_last_error=True)
     K.CreateFileW.restype = ctypes.c_void_p
@@ -55,15 +58,14 @@ if sys.platform == 'win32':
         if not K.WriteFile(h, data, len(data), ctypes.byref(n), None):
             raise ctypes.WinError(ctypes.get_last_error())
 else:  # Linux hidraw
-    def find_path():
+    def find_all():
         for d in sorted(glob.glob('/sys/class/hidraw/*/device')):
             try:  # device/.. is the USB interface; MI_02 = bInterfaceNumber 02
-                if ':0000373F:00000001' in open(d + '/uevent').read().upper() \
-                        and open(d + '/../bInterfaceNumber').read().strip() == '02':
-                    return '/dev/' + d.split('/')[4]
+                m = re.search(r':0000373F:0000(\w{4})', open(d + '/uevent').read().upper())
+                if m and int(m[1], 16) in MODELS and open(d + '/../bInterfaceNumber').read().strip() == '02':
+                    yield '/dev/' + d.split('/')[4], int(m[1], 16)
             except OSError:
                 continue
-        raise OSError('Dark Mount (MI_02) not found')
 
     def open_hid(path):
         return os.open(path, os.O_RDWR)
@@ -76,14 +78,30 @@ else:  # Linux hidraw
 
     close_hid = os.close
 
+PREFER = None  # PID to use when several keyboards are plugged in (OnyxIO: dropdown in the header)
+
+
+def devices():  # {pid: path} of the plugged-in supported keyboards, first interface per model
+    return {pid: p for p, pid in reversed(list(find_all()))}
+
+
+def find_path():
+    found = devices()
+    if not found:
+        raise OSError('Dark Mount (MI_02) not found')
+    pid = PREFER if PREFER in found else min(found)
+    return found[pid], pid
+
 
 class QLinkError(Exception):
     pass
 
 
 class QLink:
-    def __init__(self, path=None):
-        path = path or find_path()
+    def __init__(self, path=None, pid=0x0001):
+        if not path:
+            path, pid = find_path()
+        self.light = pid == 0x0002
         # two handles: a blocking read on a synchronous handle would otherwise block writes
         self.w, self.r = open_hid(path), open_hid(path)
         self.sid = self.rid = 0
@@ -134,11 +152,15 @@ class QLink:
                 raise QLinkError(f'{feat:#04x}/{cmd:#04x}: {STATUS[st] if st < len(STATUS) else st}')
             return data
 
-    def open_session(self):
-        d = self.call(0x01, 0x01, bytes.fromhex('3412000001'))  # same bytes as IO Center
+    def open_session(self, token=0x1234):
+        d = self.call(0x01, 0x01, struct.pack('<I', token) + b'\1')  # same bytes as IO Center
         self.sid = d[4]
         if d[5] == 1:  # [token u32][sid][state][timeout s]: active at once if no other client holds it
             return True
+        if self.light and token == 0x1234:  # Light Mount answers the first open Inactive; IO Center then sends
+            self.call(0x01, 0x02)  # Root.CloseSession and opens again with token + 1 -> Active (seen in its traffic)
+            self.sid = 0
+            return self.open_session(token + 1)
         end = time.monotonic() + 3
         while time.monotonic() < end:  # wait for Root.SessionStateChanged -> Active
             try:
@@ -150,8 +172,10 @@ class QLink:
         return False
 
     def keep_alive(self):
-        # ponytail: uses a verified read instead of the untested Root.KeepAlive (0x01/0x03)
-        self.call(0x20, 0x01)
+        if self.light:  # no 0x20 there; Root.KeepAlive (0x01/0x03, no params) as IO Center sends it to the Light Mount
+            self.call(0x01, 0x03)
+        else:  # ponytail: Dark Mount keeps the verified read, Root.KeepAlive was not checked on it
+            self.call(0x20, 0x01)
 
     def set_binding(self, key, action, data=b''):  # Bindings.SetBinding [key u16][action][data], ids: PROTOCOL.md
         self.call(0x11, 0x02, struct.pack('<HB', key, action) + data)
@@ -190,7 +214,9 @@ class QLink:
         self.call(0x12, 0x08, p + bytes([len(name)]) + name)
         self.call(0x12, 0x04, p + struct.pack('<BBH', m['mode'], m['delay_mode'], m['delay']))
         ev, n = b''.join(struct.pack('<BBH', *e) for e in m['events']), len(m['events'])
-        for o in range(0, max(n, 1), 12):  # SetMacroEvents [id][total][offset][events], 12 per packet; total 0 = empty
+        # SetMacroEvents [id][total][offset][events], 12 per packet; total 0 = empty (the Light Mount refuses that,
+        # InsufficientResources in IO Center's capture, so an empty macro just keeps no events there)
+        for o in range(0, max(n, 0 if getattr(self, 'light', False) else 1), 12):
             self.call(0x12, 0x06, p + struct.pack('<HH', n, o) + ev[4 * o:4 * o + 48])
 
     def set_lighting(self, cfg):  # layer 0 = global effect, rendered by the keyboard itself, survives unplugging
@@ -346,6 +372,16 @@ if __name__ == '__main__':
     assert sent[0][2] == bytes.fromhex('0000000000' '095802004001f00001') and sent[1][2][:7] == bytes.fromhex('00090000' '0000f8')
     assert sum(len(p) - 5 for *_, p in sent) == 153609 and len(sent) == 1 + 620
     if len(sys.argv) > 1 and sys.argv[1] == 'test':
+        ql, sent = QLink.__new__(QLink), []
+        ql.call = lambda *a: sent.append(a)
+        for ql.light in (True, False):  # Light Mount has no 0x20: it must get Root.KeepAlive
+            ql.keep_alive()
+        assert sent == [(0x01, 0x03), (0x20, 0x01)]
+        answers = [bytes.fromhex('34120000070003'), b'', bytes.fromhex('35120000070103')]  # Light Mount, as captured
+        sent.clear()
+        ql.call, ql.light = lambda *a: (sent.append(a), answers.pop(0))[1], True
+        assert ql.open_session() and ql.sid == 7
+        assert [a[2:] or a[:2] for a in sent] == [(bytes.fromhex('3412000001'),), (1, 2), (bytes.fromhex('3512000001'),)]
         print('ok')
     elif sys.argv[1:2] == ['unbind']:  # display keys -> Disable (00): no OS action, presses only reach us
         ql = QLink()

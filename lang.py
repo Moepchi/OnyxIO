@@ -104,6 +104,20 @@ DE = {
     'Paste': 'Einfügen',
     'Swap with next key': 'Mit nächster Taste tauschen',
     'Clear': 'Leeren',
+    'Multi action': 'Multi-Aktion',
+    'several actions one after another – steps below': 'mehrere Aktionen nacheinander – Schritte unten',
+    'Folder': 'Ordner',
+    '8 keys of its own; double-click opens it here': 'eigene 8 Tasten; Doppelklick öffnet ihn hier',
+    'Back (leave folder)': 'Zurück (Ordner verlassen)',
+    'Multi': 'Multi',
+    'Wait (ms)': 'Warten (ms)',
+    'Wait: 0 to 60000 ms.': 'Warten: 0 bis 60000 ms.',
+    'Multi action – steps': 'Multi-Aktion – Schritte',
+    'Open folder': 'Ordner öffnen',
+    'Leave folder': 'Ordner verlassen',
+    'Add': 'Hinzufügen',
+    'runs top to bottom, Apply saves': 'läuft von oben nach unten, Übernehmen speichert',
+    'Please choose what the step does.': 'Bitte wähle, was der Schritt tun soll.',
     'error': 'Fehler',
     'Settings': 'Einstellungen',
     'Keyboard layout': 'Tastaturlayout',
@@ -113,6 +127,7 @@ DE = {
     'connected, error on key {n}: {e}': 'verbunden, Fehler bei Taste {n}: {e}',
     'disconnected ({why}), retrying …': 'getrennt ({why}), neuer Versuch …',
     'no answer': 'keine Antwort',
+    'no answer – unplug the keyboard and plug it back in': 'keine Antwort – Tastatur einmal ab- und wieder anstecken',
     'busy – is IO Center running?': 'belegt, läuft IO Center?',
     'Dark Mount (MI_02) not found': 'Dark Mount (MI_02) nicht gefunden',
     # lighting
@@ -220,6 +235,8 @@ DE = {
     'Delay after (ms)': 'Pause danach (ms)',
     'Set': 'Setzen',
     'Assign key …': 'Taste zuweisen …',
+    'The keyboard holds at most {n} macros.': 'Die Tastatur speichert höchstens {n} Makros.',
+    'A macro holds at most {n} steps.': 'Ein Makro hat höchstens {n} Schritte.',
     'Press a key …': 'Taste drücken …',
     'Now press the key that should trigger the macro.': 'Drücke jetzt die Taste, die das Makro auslösen soll.',
     '{key} cannot be assigned.': '{key} lässt sich nicht belegen.',
@@ -239,6 +256,11 @@ DE = {
         'Makros liegen auf der Tastatur und laufen dort auch ohne dieses Programm, wie bei IO Center. Nur während der '
         'Aufnahme oder „Taste zuweisen“ wertet OnyxIO deine Tastendrücke dafür aus. Displaytasten und Fn lassen sich '
         'nicht aufnehmen oder belegen; Displaytasten stellst du unter „Tasten“ ein.',
+    'Macros live on the keyboard and run there even without this program, like with IO Center. OnyxIO reads your '
+    'key presses for this only while recording. Macros go on M1–M5; “Unbind” gives the key its media function back.':
+        'Makros liegen auf der Tastatur und laufen dort auch ohne dieses Programm, wie bei IO Center. Nur während der '
+        'Aufnahme wertet OnyxIO deine Tastendrücke dafür aus. Makros kommen auf M1–M5; „Lösen“ gibt der Taste ihre '
+        'Media-Funktion zurück.',
     'Accent color': 'Menüfarbe',
     'Clock': 'Uhr',
     'Idle screen': 'Leerlaufgrafik',
